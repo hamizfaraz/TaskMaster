@@ -311,7 +311,7 @@ html.dark body {
 .note-editor__block-selected::after {
   position: absolute;
   inset: 0.1rem 0;
-  z-index: 2;
+  z-index: 4;
   border: 1px solid color-mix(in srgb, var(--accent) 48%, transparent);
   border-left-width: 3px;
   border-radius: 0.45rem;
@@ -778,7 +778,13 @@ html.dark body {
 }
 
 .note-surface--editing {
-  height: 100%;
+  height: auto;
+  min-height: 100%;
+}
+
+.note-surface--editing .note-editor,
+.note-surface--editing .note-editor__canvas {
+  flex: 0 0 auto;
   min-height: 100%;
 }
 
@@ -1018,6 +1024,166 @@ html.dark body {
   opacity: 0.7;
   user-select: none;
   pointer-events: none;
+}
+
+.note-mermaid-block {
+  display: block;
+  position: relative;
+  z-index: 0;
+}
+
+.note-mermaid-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.35rem 1.25rem 0;
+}
+
+.note-mermaid-block__lang {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--note-muted-foreground);
+  opacity: 0.7;
+  user-select: none;
+  pointer-events: none;
+}
+
+.note-mermaid-block__toggle {
+  display: inline-flex;
+  width: 1.65rem;
+  height: 1.65rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--note-border);
+  border-radius: 0.45rem;
+  background: var(--note-toolbar-hover);
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0;
+}
+
+.note-mermaid-block__toggle svg {
+  display: block;
+  width: 1.05rem;
+  height: 1.05rem;
+  stroke: currentColor;
+}
+
+.note-mermaid-block__toggle:hover,
+.note-mermaid-block__toggle:focus-visible {
+  border-color: var(--note-border-strong);
+  background: var(--note-toolbar-active);
+  color: var(--foreground);
+  outline: none;
+}
+
+.note-mermaid-block__textarea {
+  display: block;
+  width: 100%;
+  min-height: 7.5rem;
+  resize: none;
+  border: 1px solid var(--note-border);
+  border-radius: 0.95rem;
+  background: var(--note-surface-muted);
+  color: var(--foreground);
+  padding: 1rem 1.25rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.note-mermaid-block__textarea[hidden] {
+  display: none;
+}
+
+.note-mermaid-block__textarea::placeholder {
+  color: var(--note-muted-foreground);
+}
+
+.note-mermaid-block__textarea:focus {
+  border-color: var(--note-border-strong);
+  outline: none;
+}
+
+.note-mermaid-block__surface {
+  margin-top: 0.5rem;
+  min-height: 8rem;
+  overflow-x: auto;
+  border: 1px solid var(--note-border);
+  border-radius: 0.95rem;
+  background: color-mix(in srgb, var(--note-surface-muted) 88%, transparent);
+  padding: 1rem 1.25rem;
+}
+
+.note-editor .note-mermaid-block__surface,
+.note-editor .note-mermaid-block__diagram,
+.note-editor .note-mermaid-block__error,
+.note-editor .note-mermaid-block__status,
+.note-editor .note-mermaid-block__placeholder {
+  pointer-events: none;
+}
+
+.note-mermaid-block--read .note-mermaid-block__surface {
+  margin-top: 0;
+}
+
+.note-mermaid-block__diagram {
+  display: flex;
+  min-width: max-content;
+  justify-content: center;
+}
+
+.note-mermaid-block__diagram svg {
+  height: auto;
+  max-width: 100%;
+}
+
+.note-mermaid-block__status,
+.note-mermaid-block__placeholder,
+.note-mermaid-block__error {
+  display: flex;
+  min-height: 5.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--note-muted-foreground);
+  font-size: 0.9rem;
+}
+
+.note-mermaid-block__error {
+  flex-direction: column;
+  align-items: stretch;
+  color: var(--color-danger);
+}
+
+.note-mermaid-block__error strong {
+  font-weight: 600;
+}
+
+.note-mermaid-block__error span {
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.note-mermaid-block__error pre {
+  margin: 0.5rem 0 0;
+  overflow-x: auto;
+  border-radius: 0.7rem;
+  background: var(--note-code-bg);
+  color: var(--note-code-fg);
+  padding: 0.8rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 /* ---- Inline math spans ---- */
