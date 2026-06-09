@@ -11,17 +11,13 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
-  Play,
   Plus,
   RotateCcw,
   Save,
   Trash2,
   XCircle,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import { LatexMarkdown } from "@/components/math/latex-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +33,7 @@ import {
   gradeObjectiveAnswer,
   summarizeAttempt,
 } from "@/lib/quizzes/attempts";
+import { normalizeTextMathToLatex } from "@/lib/math/latex";
 import type {
   QuizDifficulty,
   QuizQuestion,
@@ -123,61 +120,6 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return payload;
 }
 
-function MarkdownText({
-  markdown,
-  className,
-}: {
-  markdown: string;
-  className?: string;
-}) {
-  return (
-    <div className={cx("quiz-markdown min-w-0 text-foreground", className)}>
-      <ReactMarkdown
-        rehypePlugins={[rehypeKatex]}
-        remarkPlugins={[remarkGfm, remarkMath]}
-        components={{
-          p: ({ children }) => <p>{children}</p>,
-          ul: ({ children }) => (
-            <ul className="ml-5 list-disc space-y-1">{children}</ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="ml-5 list-decimal space-y-1">{children}</ol>
-          ),
-          li: ({ children }) => <li>{children}</li>,
-          strong: ({ children }) => (
-            <strong className="font-semibold text-foreground">
-              {children}
-            </strong>
-          ),
-          em: ({ children }) => <em className="italic">{children}</em>,
-          code: ({ children, className: codeClassName }) => (
-            <code
-              className={cx(
-                "rounded bg-surface-elevated px-1 py-0.5 font-mono text-[0.92em]",
-                codeClassName,
-              )}
-            >
-              {children}
-            </code>
-          ),
-          pre: ({ children }) => (
-            <pre className="overflow-x-auto rounded-lg border border-border bg-surface-muted p-3 text-sm">
-              {children}
-            </pre>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-4 border-border pl-3 text-muted-foreground">
-              {children}
-            </blockquote>
-          ),
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
 function StepPill({
   active,
   children,
@@ -205,6 +147,16 @@ function StatPill({ children }: { children: ReactNode }) {
       {children}
     </span>
   );
+}
+
+function normalizeQuestionMath(question: QuizQuestion): QuizQuestion {
+  return {
+    ...question,
+    prompt: normalizeTextMathToLatex(question.prompt),
+    correctAnswer: normalizeTextMathToLatex(question.correctAnswer),
+    explanation: normalizeTextMathToLatex(question.explanation),
+    choices: question.choices?.map(normalizeTextMathToLatex),
+  };
 }
 
 function makeDraftQuestion(sourceNoteTitles: string[]): QuizQuestion {
@@ -456,6 +408,24 @@ export function QuizzesClient({
     );
   }
 
+  function normalizeDraftQuestionField(
+    questionIndex: number,
+    field: "prompt" | "correctAnswer" | "explanation",
+    value: string,
+  ) {
+    updateDraftQuestion(questionIndex, {
+      [field]: normalizeTextMathToLatex(value),
+    });
+  }
+
+  function normalizeDraftChoice(
+    questionIndex: number,
+    choiceIndex: number,
+    value: string,
+  ) {
+    updateDraftChoice(questionIndex, choiceIndex, normalizeTextMathToLatex(value));
+  }
+
   function updateDraftQuestionType(index: number, type: QuizQuestionType) {
     setDraftQuestions((current) =>
       current.map((question, questionIndex) => {
@@ -505,8 +475,9 @@ export function QuizzesClient({
     setError(null);
     setIsSaving(true);
     try {
+      const normalizedQuestions = draftQuestions.map(normalizeQuestionMath);
       const sourceNoteTitles = getSourceTitles(
-        draftQuestions,
+        normalizedQuestions,
         notes,
         selectedNoteIds,
       );
@@ -520,7 +491,7 @@ export function QuizzesClient({
               title: draftTitle,
               sourceNoteIds: selectedNoteIds,
               sourceNoteTitles,
-              questions: draftQuestions,
+              questions: normalizedQuestions,
               difficulty,
               mode,
               questionTypes,
@@ -632,11 +603,12 @@ export function QuizzesClient({
   }
 
   function updateAnswer(questionId: string, value: string) {
+    const normalizedAnswer = normalizeTextMathToLatex(value);
     setAnswers((current) => ({
       ...current,
       [questionId]: {
         questionId,
-        answer: value,
+        answer: normalizedAnswer,
         evaluation: current[questionId]?.evaluation,
       },
     }));
@@ -849,6 +821,7 @@ export function QuizzesClient({
 
                     <button
                       type="button"
+                      aria-label={`Open actions for ${quiz.title}`}
                       className="shrink-0 rounded-md p-1.5 text-muted-foreground transition hover:bg-surface-elevated hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1279,6 +1252,13 @@ export function QuizzesClient({
                             prompt: event.target.value,
                           })
                         }
+                        onBlur={(event) =>
+                          normalizeDraftQuestionField(
+                            draftQuestionIndex,
+                            "prompt",
+                            event.target.value,
+                          )
+                        }
                       />
                     </label>
                     <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
@@ -1331,6 +1311,13 @@ export function QuizzesClient({
                             correctAnswer: event.target.value,
                           })
                         }
+                        onBlur={(event) =>
+                          normalizeDraftQuestionField(
+                            draftQuestionIndex,
+                            "correctAnswer",
+                            event.target.value,
+                          )
+                        }
                       />
                     </label>
                     <label className="flex flex-col gap-1.5 text-sm font-medium text-foreground">
@@ -1343,6 +1330,13 @@ export function QuizzesClient({
                           updateDraftQuestion(draftQuestionIndex, {
                             explanation: event.target.value,
                           })
+                        }
+                        onBlur={(event) =>
+                          normalizeDraftQuestionField(
+                            draftQuestionIndex,
+                            "explanation",
+                            event.target.value,
+                          )
                         }
                       />
                     </label>
@@ -1362,6 +1356,13 @@ export function QuizzesClient({
                           value={choice}
                           onChange={(event) =>
                             updateDraftChoice(
+                              draftQuestionIndex,
+                              choiceIndex,
+                              event.target.value,
+                            )
+                          }
+                          onBlur={(event) =>
+                            normalizeDraftChoice(
                               draftQuestionIndex,
                               choiceIndex,
                               event.target.value,
@@ -1475,7 +1476,7 @@ export function QuizzesClient({
                 </Badge>
               ))}
             </div>
-            <MarkdownText
+            <LatexMarkdown
               markdown={currentQuestion.prompt}
               className="space-y-3 text-xl font-semibold leading-8"
             />
@@ -1503,7 +1504,7 @@ export function QuizzesClient({
                     }
                     onChange={() => updateAnswer(currentQuestion.id, choice)}
                   />
-                  <MarkdownText markdown={choice} className="text-sm" />
+                  <LatexMarkdown markdown={choice} className="text-sm" />
                 </label>
               ))}
             </div>
@@ -1534,12 +1535,12 @@ export function QuizzesClient({
                 {currentEvaluation.correct ? "Correct" : "Needs work"} - Score{" "}
                 {formatPercent(currentEvaluation.score)}
               </div>
-              <MarkdownText
+              <LatexMarkdown
                 markdown={currentEvaluation.feedback}
                 className="mt-1 space-y-2"
               />
               <div className="mt-2 font-medium">Ideal answer</div>
-              <MarkdownText
+              <LatexMarkdown
                 markdown={currentEvaluation.idealAnswer}
                 className="mt-1 space-y-2"
               />
@@ -1743,7 +1744,7 @@ export function QuizzesClient({
             </CardHeader>
             <CardContent className="flex min-h-0 flex-1 flex-col gap-3 text-sm">
               <div className="min-h-0 overflow-y-auto rounded-lg border border-border bg-surface-muted p-3">
-                <MarkdownText
+                <LatexMarkdown
                   markdown={resultQuestion.prompt}
                   className="space-y-2 font-medium"
                 />
@@ -1753,7 +1754,7 @@ export function QuizzesClient({
                   <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     Your answer
                   </div>
-                  <MarkdownText
+                  <LatexMarkdown
                     markdown={resultAnswer?.answer.trim() || "Unanswered"}
                     className="space-y-2"
                   />
@@ -1762,7 +1763,7 @@ export function QuizzesClient({
                   <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     Correct answer
                   </div>
-                  <MarkdownText
+                  <LatexMarkdown
                     markdown={resultQuestion.correctAnswer}
                     className="space-y-2"
                   />
@@ -1772,14 +1773,14 @@ export function QuizzesClient({
                 <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   Feedback
                 </div>
-                <MarkdownText
+                <LatexMarkdown
                   markdown={resultEvaluation.feedback}
                   className="space-y-2"
                 />
                 <div className="mt-3 mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   Explanation
                 </div>
-                <MarkdownText
+                <LatexMarkdown
                   markdown={
                     resultQuestion.explanation || resultEvaluation.idealAnswer
                   }

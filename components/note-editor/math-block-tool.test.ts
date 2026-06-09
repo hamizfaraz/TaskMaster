@@ -100,4 +100,16 @@ describe("MathBlockTool", () => {
     expect(insert).toHaveBeenCalledWith("paragraph", { text: "<br>" }, undefined, 4, true);
     expect(enterEvent.defaultPrevented).toBe(true);
   });
+
+  it("saves normalized LaTeX from typed math", () => {
+    const { tool } = createTool();
+    const rendered = tool.render();
+    const mathField = rendered.querySelector("math-field") as HTMLElement & {
+      value: string;
+    };
+
+    mathField.value = "√(x²)";
+
+    expect(tool.save()).toEqual({ latex: "\\sqrt{x^2}" });
+  });
 });

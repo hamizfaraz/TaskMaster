@@ -14,6 +14,7 @@
  */
 
 import type { NoteBlock, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
+import { normalizeLatex } from "@/lib/math/latex";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,7 +58,9 @@ function processInlineMath(line: string): string {
       return _match; // leave untouched
     }
 
-    return `<span class="note-inline-math" data-latex="${escapeHtmlAttr(trimmed)}">$${trimmed}$</span>`;
+    const latex = normalizeLatex(trimmed);
+
+    return `<span class="note-inline-math" data-latex="${escapeHtmlAttr(latex)}">$${latex}$</span>`;
   });
 }
 
@@ -119,7 +122,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
         i++;
       }
       i++; // skip closing $$
-      blocks.push({ type: "math", data: { latex: mathLines.join("\n") } });
+      blocks.push({ type: "math", data: { latex: normalizeLatex(mathLines.join("\n")) } });
       continue;
     }
 

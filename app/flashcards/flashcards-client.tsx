@@ -10,7 +10,6 @@ import {
   Edit3,
   Loader2,
   MoreHorizontal,
-  Play,
   Plus,
   RotateCcw,
   Save,
@@ -18,10 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import { LatexMarkdown } from "@/components/math/latex-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +28,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
+import { normalizeTextMathToLatex } from "@/lib/math/latex";
 import { cx } from "@/lib/utils";
 import type { FlashcardDeck, FlashcardItem } from "@/lib/flashcards/types";
 
@@ -89,6 +86,21 @@ function cloneDeck(deck: FlashcardDeck): FlashcardDeck {
   };
 }
 
+function normalizeCardMath(card: FlashcardItem): FlashcardItem {
+  return {
+    ...card,
+    front: normalizeTextMathToLatex(card.front),
+    back: normalizeTextMathToLatex(card.back),
+  };
+}
+
+function normalizeDeckMath(deck: FlashcardDeck): FlashcardDeck {
+  return {
+    ...deck,
+    cards: deck.cards.map(normalizeCardMath),
+  };
+}
+
 function withCardCount(deck: FlashcardDeck): FlashcardDeck {
   return {
     ...deck,
@@ -110,39 +122,6 @@ function parseTags(value: string) {
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 8);
-}
-
-function MarkdownText({
-  markdown,
-  className,
-}: {
-  markdown: string;
-  className?: string;
-}) {
-  return (
-    <div className={cx("min-w-0 space-y-2 text-foreground", className)}>
-      <ReactMarkdown
-        rehypePlugins={[rehypeKatex]}
-        remarkPlugins={[remarkGfm, remarkMath]}
-        components={{
-          p: ({ children }) => <p>{children}</p>,
-          ul: ({ children }) => (
-            <ul className="ml-5 list-disc space-y-1">{children}</ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="ml-5 list-decimal space-y-1">{children}</ol>
-          ),
-          code: ({ children }) => (
-            <code className="rounded bg-surface-elevated px-1 py-0.5 font-mono text-[0.92em]">
-              {children}
-            </code>
-          ),
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    </div>
-  );
 }
 
 function StatPill({ children }: { children: ReactNode }) {
@@ -252,6 +231,11 @@ function DeckEditor({
                     onChange={(event) =>
                       updateCard(index, { front: event.target.value })
                     }
+                    onBlur={(event) =>
+                      updateCard(index, {
+                        front: normalizeTextMathToLatex(event.target.value),
+                      })
+                    }
                   />
                 </label>
                 <label className="space-y-2 text-sm font-medium text-foreground">
@@ -262,6 +246,11 @@ function DeckEditor({
                     disabled={disabled}
                     onChange={(event) =>
                       updateCard(index, { back: event.target.value })
+                    }
+                    onBlur={(event) =>
+                      updateCard(index, {
+                        back: normalizeTextMathToLatex(event.target.value),
+                      })
                     }
                   />
                 </label>
@@ -409,6 +398,7 @@ export function FlashcardsClient({
       return;
     }
 
+    const normalizedDeck = normalizeDeckMath(draftDeck);
     setIsSaving(true);
     try {
       const payload = await readJsonResponse<{ deck: FlashcardDeck }>(
@@ -417,9 +407,9 @@ export function FlashcardsClient({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode: "save",
-            title: draftDeck.title,
-            sourceNoteIds: draftDeck.sourceNoteIds,
-            cards: draftDeck.cards,
+            title: normalizedDeck.title,
+            sourceNoteIds: normalizedDeck.sourceNoteIds,
+            cards: normalizedDeck.cards,
           }),
         }),
       );
@@ -444,6 +434,7 @@ export function FlashcardsClient({
       return;
     }
 
+    const normalizedDeck = normalizeDeckMath(editingDeck);
     setIsSaving(true);
     try {
       const payload = await readJsonResponse<{ deck: FlashcardDeck }>(
@@ -451,10 +442,10 @@ export function FlashcardsClient({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            deckId: editingDeck.id,
-            title: editingDeck.title,
-            sourceNoteIds: editingDeck.sourceNoteIds,
-            cards: editingDeck.cards,
+            deckId: normalizedDeck.id,
+            title: normalizedDeck.title,
+            sourceNoteIds: normalizedDeck.sourceNoteIds,
+            cards: normalizedDeck.cards,
           }),
         }),
       );
@@ -591,6 +582,7 @@ export function FlashcardsClient({
 
                         <button
                           type="button"
+                          aria-label={`Open actions for ${deck.title}`}
                           className="shrink-0 rounded-md p-1.5 text-muted-foreground transition hover:bg-surface-elevated hover:text-foreground"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -903,7 +895,7 @@ export function FlashcardsClient({
                       <Badge variant="outline">Flip</Badge>
                     </div>
                     <div className="mx-auto flex w-full max-w-3xl flex-1 items-center justify-center py-8">
-                      <MarkdownText
+                      <LatexMarkdown
                         markdown={showBack ? activeCard.back : activeCard.front}
                         className="text-center text-xl font-medium leading-9"
                       />

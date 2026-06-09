@@ -1,6 +1,7 @@
 import type { BlockTool, BlockToolConstructorOptions, ToolboxConfig } from "@editorjs/editorjs";
 import type { API, BlockAPI } from "@editorjs/editorjs";
 import type { MathfieldElement } from "mathlive";
+import { normalizeLatex } from "@/lib/math/latex";
 import type { NoteMathBlockData } from "@/lib/notes/types";
 
 const MATH_TOOL_ICON = `
@@ -50,7 +51,7 @@ export class MathBlockTool implements BlockTool {
     }
 
     this.data = {
-      latex: this.mathField.value,
+      latex: normalizeLatex(this.mathField.value),
     };
   };
 
@@ -59,7 +60,7 @@ export class MathBlockTool implements BlockTool {
     this.block = block;
     this.readOnly = readOnly;
     this.data = {
-      latex: data.latex ?? "",
+      latex: normalizeLatex(data.latex ?? ""),
     };
   }
 
@@ -105,7 +106,7 @@ export class MathBlockTool implements BlockTool {
 
   public save() {
     return {
-      latex: this.mathField?.value ?? this.data.latex,
+      latex: normalizeLatex(this.mathField?.value ?? this.data.latex),
     };
   }
 

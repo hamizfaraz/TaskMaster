@@ -19,6 +19,7 @@ import type {
 } from "@/lib/notes/types";
 import { emptyNoteDocument, NoteDocumentSchema } from "@/lib/notes/types";
 import { createNoteContent } from "@/lib/notes/markdown";
+import { normalizeLatex } from "@/lib/math/latex";
 import { CodeBlockTool } from "@/components/note-editor/code-block-tool";
 import { MathBlockTool } from "@/components/note-editor/math-block-tool";
 
@@ -238,7 +239,7 @@ function convertBlock(
       return {
         type: "math",
         data: {
-          latex: plainText,
+          latex: normalizeLatex(plainText),
         },
       };
     default:
