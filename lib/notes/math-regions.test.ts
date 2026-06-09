@@ -3,7 +3,7 @@ import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import type { NoteDocument } from "@/lib/notes/types";
 
 describe("normalizeNoteLatexRegions", () => {
-  it("splits delimited inline math into math blocks", () => {
+  it("keeps single-dollar math inline inside paragraph blocks", () => {
     const document: NoteDocument = {
       time: 1,
       blocks: [
@@ -20,25 +20,13 @@ describe("normalizeNoteLatexRegions", () => {
       {
         type: "paragraph",
         data: {
-          text: "Use",
-        },
-      },
-      {
-        type: "math",
-        data: {
-          latex: "x^2 + y^2 = z^2",
-        },
-      },
-      {
-        type: "paragraph",
-        data: {
-          text: "for the distance relation.",
+          text: 'Use <span class="note-inline-math" data-latex="x^2 + y^2 = z^2">$x^2 + y^2 = z^2$</span> for the distance relation.',
         },
       },
     ]);
   });
 
-  it("converts imported inline math spans to math blocks", () => {
+  it("keeps imported inline math spans inline", () => {
     const document: NoteDocument = {
       time: 1,
       blocks: [
@@ -55,13 +43,42 @@ describe("normalizeNoteLatexRegions", () => {
       {
         type: "paragraph",
         data: {
-          text: "Area",
+          text: 'Area <span class="note-inline-math" data-latex="\\pi r^2">$\\pi r^2$</span>',
+        },
+      },
+    ]);
+  });
+
+  it("splits display math into math blocks", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        {
+          type: "paragraph",
+          data: {
+            text: "Before $$x^2 + y^2 = z^2$$ after",
+          },
+        },
+      ],
+    };
+
+    expect(normalizeNoteLatexRegions(document).blocks).toEqual([
+      {
+        type: "paragraph",
+        data: {
+          text: "Before",
         },
       },
       {
         type: "math",
         data: {
-          latex: "\\pi r^2",
+          latex: "x^2 + y^2 = z^2",
+        },
+      },
+      {
+        type: "paragraph",
+        data: {
+          text: "after",
         },
       },
     ]);

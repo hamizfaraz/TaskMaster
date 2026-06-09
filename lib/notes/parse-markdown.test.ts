@@ -11,19 +11,7 @@ describe("parseMarkdownToNoteDocument", () => {
       {
         type: "paragraph",
         data: {
-          text: "Use",
-        },
-      },
-      {
-        type: "math",
-        data: {
-          latex: "\\sqrt{x^2}",
-        },
-      },
-      {
-        type: "paragraph",
-        data: {
-          text: "here.",
+          text: 'Use <span class="note-inline-math" data-latex="\\sqrt{x^2}">$\\sqrt{x^2}$</span> here.',
         },
       },
       {

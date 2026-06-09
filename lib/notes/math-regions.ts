@@ -10,12 +10,15 @@ type RegionSegment =
       type: "math";
       latex: string;
     };
+type RichTextNoteBlock = Extract<
+  NoteBlock,
+  { type: "paragraph" | "header" | "quote" }
+>;
 
 const INLINE_MATH_SPAN_RE =
   /<span[^>]*class="[^"]*\bnote-inline-math\b[^"]*"[^>]*data-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi;
 const LATEX_REGION_RE =
   /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|(?<!\$)\$(?!\$)([^$\r\n]+?)(?<!\$)\$(?!\$)|\\\(([\s\S]+?)\\\)/g;
-const HTML_TAG_RE = /<\/?[a-z][\s\S]*?>/i;
 const LATEX_SIGNAL_RE = /\\[A-Za-z]+|[\^_{}=<>≤≥≠≈±×÷∞√∑∫→⇒∈∉∂∇∆αβγδθλμσπΩ]/;
 
 function decodeHtml(value: string) {
@@ -26,6 +29,24 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+function escapeHtmlAttr(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function inlineMathSpan(latex: string) {
+  const escaped = escapeHtmlAttr(latex);
+  return `<span class="note-inline-math" data-latex="${escaped}">$${latex}$</span>`;
+}
+
+function hasInlineMathSpan(value: string) {
+  INLINE_MATH_SPAN_RE.lastIndex = 0;
+  return INLINE_MATH_SPAN_RE.test(value);
 }
 
 function richTextToPlainText(value: string) {
@@ -88,17 +109,26 @@ function splitLatexRegions(value: string): RegionSegment[] {
   const plainText = richTextToPlainText(value);
   const segments: RegionSegment[] = [];
   let lastIndex = 0;
+  let pendingText = "";
 
   for (const match of plainText.matchAll(LATEX_REGION_RE)) {
-    pushTextSegment(segments, plainText.slice(lastIndex, match.index));
+    pendingText += plainText.slice(lastIndex, match.index);
+    const isInline = typeof match[3] === "string" || typeof match[4] === "string";
     const latex = normalizeLatex(match[1] ?? match[2] ?? match[3] ?? match[4] ?? "");
     if (latex) {
-      segments.push({ type: "math", latex });
+      if (isInline) {
+        pendingText += inlineMathSpan(latex);
+      } else {
+        pushTextSegment(segments, pendingText);
+        pendingText = "";
+        segments.push({ type: "math", latex });
+      }
     }
     lastIndex = (match.index ?? 0) + match[0].length;
   }
 
-  pushTextSegment(segments, plainText.slice(lastIndex));
+  pendingText += plainText.slice(lastIndex);
+  pushTextSegment(segments, pendingText);
 
   return segments;
 }
@@ -121,6 +151,35 @@ function mathBlock(latex: string): NoteBlock {
   };
 }
 
+function richTextBlockLike(block: RichTextNoteBlock, text: string): NoteBlock {
+  if (block.type === "header") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        text,
+      },
+    };
+  }
+
+  if (block.type === "quote") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        text,
+      },
+    };
+  }
+
+  return {
+    ...block,
+    data: {
+      text,
+    },
+  };
+}
+
 function convertRichTextBlock(block: NoteBlock): NoteBlock[] {
   if (
     block.type !== "paragraph" &&
@@ -131,13 +190,25 @@ function convertRichTextBlock(block: NoteBlock): NoteBlock[] {
   }
 
   const sourceText = block.type === "quote" ? block.data.text : block.data.text;
-  if (!sourceText || (!sourceText.includes("$") && !sourceText.includes("\\") && !HTML_TAG_RE.test(sourceText) && !LATEX_SIGNAL_RE.test(sourceText))) {
+  const signalText = sourceText.replace(/<[^>]+>/g, "");
+  if (
+    !sourceText ||
+    (!sourceText.includes("$") &&
+      !sourceText.includes("\\") &&
+      !hasInlineMathSpan(sourceText) &&
+      !LATEX_SIGNAL_RE.test(signalText))
+  ) {
     return [block];
   }
 
   const segments = splitLatexRegions(sourceText);
-  if (segments.length === 0 || segments.every((segment) => segment.type === "text")) {
+  if (segments.length === 0) {
     return [block];
+  }
+
+  if (segments.every((segment) => segment.type === "text")) {
+    const text = segments.map((segment) => segment.value).join("\n");
+    return text === sourceText ? [block] : [richTextBlockLike(block, text)];
   }
 
   return segments.map((segment) =>
