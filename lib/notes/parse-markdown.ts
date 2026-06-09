@@ -15,6 +15,7 @@
 
 import type { NoteBlock, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
 import { normalizeLatex } from "@/lib/math/latex";
+import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -207,5 +208,5 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
     }
   }
 
-  return { time: Date.now(), blocks };
+  return normalizeNoteLatexRegions({ time: Date.now(), blocks });
 }

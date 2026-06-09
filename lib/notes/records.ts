@@ -1,4 +1,5 @@
 import { createNoteContent } from "@/lib/notes/markdown";
+import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { emptyNoteDocument, NoteDocumentSchema, type NoteContent, type NoteDocument } from "@/lib/notes/types";
 
 export type NoteSourceType = "manual" | "upload";
@@ -66,7 +67,7 @@ export function normalizeNoteDocument(value: unknown): NoteDocument {
     return createEmptyDocument();
   }
 
-  return parsed.data;
+  return normalizeNoteLatexRegions(parsed.data);
 }
 
 function normalizeEmbedding(value: unknown) {

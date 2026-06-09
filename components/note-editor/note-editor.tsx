@@ -19,6 +19,7 @@ import type {
 } from "@/lib/notes/types";
 import { emptyNoteDocument, NoteDocumentSchema } from "@/lib/notes/types";
 import { createNoteContent } from "@/lib/notes/markdown";
+import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { normalizeLatex } from "@/lib/math/latex";
 import { CodeBlockTool } from "@/components/note-editor/code-block-tool";
 import { MathBlockTool } from "@/components/note-editor/math-block-tool";
@@ -371,11 +372,12 @@ export function NoteEditor({
   readOnly = false,
   selectionPrelude,
 }: NoteEditorProps) {
+  const normalizedInitialDocument = normalizeNoteLatexRegions(initialDocument);
   const selectionScopeRef = useRef<HTMLElement | null>(null);
   const holderRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<EditorJS | null>(null);
   const changeTimeoutRef = useRef<number | null>(null);
-  const renderedDocumentRef = useRef<NoteDocument>(initialDocument);
+  const renderedDocumentRef = useRef<NoteDocument>(normalizedInitialDocument);
   const pendingSaveRef = useRef<NoteContent | null>(null);
   const isFlushingSaveRef = useRef(false);
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -419,16 +421,16 @@ export function NoteEditor({
     await flushPendingSaves();
   });
 
-  const saveEditorDocument = useCallback(async (editor: EditorJS) => {
+  const saveEditorDocument = useCallback(async (editor: EditorJS, options?: { renderNormalized?: boolean }) => {
     const saved = NoteDocumentSchema.parse(await editor.save());
     const holder = holderRef.current;
     if (!holder) {
-      return saved;
+      return normalizeNoteLatexRegions(saved);
     }
 
     const domBlocks = Array.from(holder.querySelectorAll<HTMLElement>(".ce-block"));
     if (domBlocks.length === 0) {
-      return saved;
+      return normalizeNoteLatexRegions(saved);
     }
 
     const savedBlocksById = new Map(
@@ -484,10 +486,24 @@ export function NoteEditor({
       })
       .filter((block): block is NoteBlock => Boolean(block));
 
-    return NoteDocumentSchema.parse({
+    const document = NoteDocumentSchema.parse({
       ...saved,
       blocks,
     });
+
+    const normalized = normalizeNoteLatexRegions(document);
+    if (
+      options?.renderNormalized &&
+      !areDocumentsEqual(document, normalized)
+    ) {
+      await editor.render(
+        normalized.blocks.length > 0
+          ? normalized
+          : { ...emptyNoteDocument },
+      );
+    }
+
+    return normalized;
   }, []);
 
   const emitContentChange = useEffectEvent(async () => {
@@ -496,7 +512,9 @@ export function NoteEditor({
     }
 
     try {
-      const document = await saveEditorDocument(editorRef.current);
+      const document = await saveEditorDocument(editorRef.current, {
+        renderNormalized: true,
+      });
       const content = createNoteContent(document);
       await publishContent(content);
     } catch (error) {
@@ -1662,11 +1680,13 @@ export function NoteEditor({
   }, [readOnly]);
 
   useEffect(() => {
-    if (areDocumentsEqual(initialDocument, renderedDocumentRef.current)) {
+    const nextDocument = normalizeNoteLatexRegions(initialDocument);
+
+    if (areDocumentsEqual(nextDocument, renderedDocumentRef.current)) {
       return;
     }
 
-    renderedDocumentRef.current = initialDocument;
+    renderedDocumentRef.current = nextDocument;
     pendingSaveRef.current = null;
 
     const editor = editorRef.current;
@@ -1678,8 +1698,8 @@ export function NoteEditor({
     void editor.isReady
       .then(() =>
         editor.render(
-          initialDocument.blocks.length > 0
-            ? initialDocument
+          nextDocument.blocks.length > 0
+            ? nextDocument
             : { ...emptyNoteDocument },
         ),
       )
