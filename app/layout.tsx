@@ -5,6 +5,7 @@ import "./globals.css";
 import "mathlive/fonts.css";
 import "mathlive/static.css";
 import { ThemeInitializer } from "@/components/ui/theme-initializer";
+import 'katex/dist/katex.min.css';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

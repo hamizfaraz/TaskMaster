@@ -4,11 +4,15 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
+  pgEnum,
   pgTable,
   text,
   timestamp,
   vector,
 } from "drizzle-orm/pg-core";
+
+export const noteSourceEnum = pgEnum("note_source", ["manual", "upload"]);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
