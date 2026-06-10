@@ -982,6 +982,18 @@ html.dark body {
   color: var(--foreground);
 }
 
+.note-editor .note-inline-math-block math-field,
+.note-renderer .note-inline-math-block math-field {
+  width: auto;
+  max-width: 100%;
+  min-width: 4rem;
+}
+
+.note-editor .note-inline-math-block math-field::part(container),
+.note-renderer .note-inline-math-block math-field::part(container) {
+  padding: 0;
+}
+
 .note-renderer .katex-display {
   margin: 0.25rem 0;
   overflow-x: auto;
@@ -1018,16 +1030,4 @@ html.dark body {
   opacity: 0.7;
   user-select: none;
   pointer-events: none;
-}
-
-/* ---- Inline math spans ---- */
-.note-inline-math {
-  display: inline;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.9em;
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
-  border-radius: 3px;
-  padding: 0.05em 0.3em;
-  white-space: nowrap;
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { MathBlockTool } from "@/components/note-editor/math-block-tool";
+import {
+  InlineMathBlockTool,
+  MathBlockTool,
+} from "@/components/note-editor/math-block-tool";
 
 describe("MathBlockTool", () => {
   function createTool() {
@@ -111,5 +114,32 @@ describe("MathBlockTool", () => {
     mathField.value = "√(x²)";
 
     expect(tool.save()).toEqual({ latex: "\\sqrt{x^2}" });
+  });
+
+  it("renders inline math with the compact math field variant", () => {
+    const tool = new InlineMathBlockTool({
+      data: {
+        latex: "x^2",
+      },
+      api: {
+        blocks: {
+          insert: vi.fn(),
+          getBlockIndex: vi.fn(),
+        },
+      } as never,
+      config: {
+        variant: "inline",
+      },
+      block: {
+        id: "inline-math-block",
+      } as never,
+      readOnly: false,
+    });
+
+    const rendered = tool.render();
+    const mathField = rendered.querySelector("math-field");
+
+    expect(rendered.className).toContain("note-inline-math-block");
+    expect(mathField?.getAttribute("placeholder")).toBe("x^2");
   });
 });

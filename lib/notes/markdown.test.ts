@@ -170,4 +170,32 @@ describe("serializeNoteDocumentToMarkdown", () => {
       "Second block moved first\n\nFirst block moved second",
     );
   });
+
+  it("serializes inline math blocks with adjacent text as one inline sentence", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        {
+          type: "paragraph",
+          data: {
+            text: "Use",
+          },
+        },
+        {
+          type: "inlineMath",
+          data: {
+            latex: "\\sqrt{x^2}",
+          },
+        },
+        {
+          type: "paragraph",
+          data: {
+            text: "here.",
+          },
+        },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe("Use $\\sqrt{x^2}$ here.");
+  });
 });

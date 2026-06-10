@@ -9,61 +9,13 @@
  *   - Block math ($$…$$)
  *   - Blockquotes (>)
  *   - Ordered / unordered / checklist lists
- *   - Inline math ($…$) inside paragraph text
+ *   - Inline math ($…$) as inline math blocks
  *   - Paragraphs (everything else)
  */
 
 import type { NoteBlock, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
 import { normalizeLatex } from "@/lib/math/latex";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function escapeHtmlAttr(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-/**
- * Detect and replace inline math ($…$) within a single line of text.
- *
- * Heuristic: we match $content$ where content is non-empty and contains at
- * least one LaTeX-typical character (backslash, caret, underscore, or braces)
- * OR is a short single-token that doesn't look like a shell / currency value.
- * This avoids false-positives on "$HOME", "$5.99", etc.
- *
- * The result is a <span class="note-inline-math" data-latex="…"> element so
- * the serializer and renderer can round-trip it cleanly.
- */
-function processInlineMath(line: string): string {
-  // Avoid matching $$ (block math uses doubled dollar signs)
-  // Pattern: $<non-empty, non-newline content>$ — negative lookaround for $
-  const re = /(?<!\$)\$(?!\$)([^$\r\n]+?)(?<!\$)\$(?!\$)/g;
-
-  return line.replace(re, (_match, content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) return _match;
-
-    // Accept as inline math if content contains any LaTeX-specific char, or
-    // is a multi-character expression that can't be a bare shell identifier.
-    const hasLatexChar = /[\\^_{}]/.test(trimmed);
-    const isBareShellId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed);
-    const isCurrency = /^\d/.test(trimmed);
-
-    if (!hasLatexChar && (isBareShellId || isCurrency)) {
-      return _match; // leave untouched
-    }
-
-    const latex = normalizeLatex(trimmed);
-
-    return `<span class="note-inline-math" data-latex="${escapeHtmlAttr(latex)}">$${latex}$</span>`;
-  });
-}
 
 function isListLine(line: string) {
   return /^[-*+]\s/.test(line) || /^\d+\.\s/.test(line);
@@ -149,7 +101,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
       blocks.push({
         type: "quote",
         data: {
-          text: quoteLines.map(processInlineMath).join("<br>"),
+          text: quoteLines.join("<br>"),
           caption: "",
           alignment: "left",
         },
@@ -174,10 +126,9 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
         const olMatch = itemLine.match(/^\d+\.\s+(.*)/);
         const ulMatch = itemLine.match(/^[-*+]\s+(.*)/);
         const rawContent = (clMatch?.[2] ?? olMatch?.[1] ?? ulMatch?.[1] ?? "").trim();
-        const content = processInlineMath(rawContent);
         const checked = clMatch ? clMatch[1] !== " " : false;
         items.push({
-          content,
+          content: rawContent,
           meta: style === "checklist" ? { checked } : {},
           items: [],
         });
@@ -203,7 +154,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
       i++;
     }
     if (paragraphLines.length > 0) {
-      const text = paragraphLines.map(processInlineMath).join("<br>");
+      const text = paragraphLines.join("<br>");
       blocks.push({ type: "paragraph", data: { text } });
     }
   }

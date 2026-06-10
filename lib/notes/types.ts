@@ -9,7 +9,8 @@ export type NoteBlockType =
   | "quote"
   | "code"
   | "image"
-  | "math";
+  | "math"
+  | "inlineMath";
 
 export type NoteParagraphBlockData = {
   text: string;
@@ -68,6 +69,8 @@ export type NoteMathBlockData = {
   latex: string;
 };
 
+export type NoteInlineMathBlockData = NoteMathBlockData;
+
 export type NoteBlock =
   | OutputBlockData<"paragraph", NoteParagraphBlockData>
   | OutputBlockData<"header", NoteHeaderBlockData>
@@ -75,7 +78,8 @@ export type NoteBlock =
   | OutputBlockData<"quote", NoteQuoteBlockData>
   | OutputBlockData<"code", NoteCodeBlockData>
   | OutputBlockData<"image", NoteImageBlockData>
-  | OutputBlockData<"math", NoteMathBlockData>;
+  | OutputBlockData<"math", NoteMathBlockData>
+  | OutputBlockData<"inlineMath", NoteInlineMathBlockData>;
 
 export type NoteDocument = Omit<OutputData, "blocks"> & {
   blocks: NoteBlock[];
@@ -185,6 +189,15 @@ const mathBlockSchema = z.object({
   tunes: z.record(z.string(), z.unknown()).optional(),
 });
 
+const inlineMathBlockSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("inlineMath"),
+  data: z.object({
+    latex: z.string(),
+  }),
+  tunes: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const NoteBlockSchema = z.discriminatedUnion("type", [
   paragraphBlockSchema,
   headerBlockSchema,
@@ -193,6 +206,7 @@ export const NoteBlockSchema = z.discriminatedUnion("type", [
   codeBlockSchema,
   imageBlockSchema,
   mathBlockSchema,
+  inlineMathBlockSchema,
 ]);
 
 export const NoteDocumentSchema: z.ZodType<NoteDocument> = z

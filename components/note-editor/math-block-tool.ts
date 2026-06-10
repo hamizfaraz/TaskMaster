@@ -10,6 +10,14 @@ const MATH_TOOL_ICON = `
   </svg>
 `;
 
+const INLINE_MATH_TOOL_ICON = `
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M4 10H8M12 10H16M8 6L12 14M12 6L8 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+`;
+
+type MathBlockVariant = "display" | "inline";
+
 export class MathBlockTool implements BlockTool {
   public static get toolbox(): ToolboxConfig {
     return {
@@ -25,6 +33,7 @@ export class MathBlockTool implements BlockTool {
   private readonly readOnly: boolean;
   private readonly api: API;
   private readonly block: BlockAPI;
+  private readonly variant: MathBlockVariant;
   private data: NoteMathBlockData;
   private mathField: MathfieldElement | null = null;
   private wrapper: HTMLDivElement | null = null;
@@ -55,10 +64,14 @@ export class MathBlockTool implements BlockTool {
     };
   };
 
-  constructor({ api, block, data, readOnly }: BlockToolConstructorOptions<NoteMathBlockData>) {
+  constructor({ api, block, config, data, readOnly }: BlockToolConstructorOptions<NoteMathBlockData>) {
     this.api = api;
     this.block = block;
     this.readOnly = readOnly;
+    this.variant =
+      (config as { variant?: MathBlockVariant } | undefined)?.variant === "inline"
+        ? "inline"
+        : "display";
     this.data = {
       latex: normalizeLatex(data.latex ?? ""),
     };
@@ -67,20 +80,27 @@ export class MathBlockTool implements BlockTool {
   public render() {
     const wrapper = document.createElement("div");
     wrapper.className =
-      "rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950";
+      this.variant === "inline"
+        ? "note-inline-math-block inline-flex max-w-full items-center rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 align-middle dark:border-zinc-800 dark:bg-zinc-950"
+        : "rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950";
     wrapper.contentEditable = "false";
 
-    const label = document.createElement("div");
-    label.className = "mb-2 text-xs font-medium uppercase tracking-[0.2em] text-zinc-500";
-    label.textContent = this.readOnly ? "Equation" : "Math";
-    wrapper.append(label);
+    if (this.variant === "display") {
+      const label = document.createElement("div");
+      label.className = "mb-2 text-xs font-medium uppercase tracking-[0.2em] text-zinc-500";
+      label.textContent = this.readOnly ? "Equation" : "Math";
+      wrapper.append(label);
+    }
 
     const mathField = document.createElement("math-field") as unknown as MathfieldElement;
-    mathField.className = "block min-h-12 w-full rounded-md bg-white px-3 py-2 text-lg dark:bg-zinc-900";
+    mathField.className =
+      this.variant === "inline"
+        ? "block min-h-8 w-auto rounded bg-white px-2 py-1 text-base dark:bg-zinc-900"
+        : "block min-h-12 w-full rounded-md bg-white px-3 py-2 text-lg dark:bg-zinc-900";
     mathField.setAttribute("math-virtual-keyboard-policy", "manual");
     mathField.setAttribute("smart-mode", "on");
     mathField.setAttribute("default-mode", "math");
-    mathField.setAttribute("placeholder", "\\frac{a}{b}");
+    mathField.setAttribute("placeholder", this.variant === "inline" ? "x^2" : "\\frac{a}{b}");
     mathField.value = this.data.latex;
 
     if (this.readOnly) {
@@ -164,5 +184,14 @@ export class MathBlockTool implements BlockTool {
       window.setTimeout(focus, 350);
       window.setTimeout(focus, 650);
     });
+  }
+}
+
+export class InlineMathBlockTool extends MathBlockTool {
+  public static override get toolbox(): ToolboxConfig {
+    return {
+      title: "Inline math",
+      icon: INLINE_MATH_TOOL_ICON,
+    };
   }
 }

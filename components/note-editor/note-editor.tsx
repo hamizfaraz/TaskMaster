@@ -22,7 +22,10 @@ import { createNoteContent } from "@/lib/notes/markdown";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { normalizeLatex } from "@/lib/math/latex";
 import { CodeBlockTool } from "@/components/note-editor/code-block-tool";
-import { MathBlockTool } from "@/components/note-editor/math-block-tool";
+import {
+  InlineMathBlockTool,
+  MathBlockTool,
+} from "@/components/note-editor/math-block-tool";
 
 export type NoteEditorProps = {
   initialDocument: NoteDocument;
@@ -57,7 +60,8 @@ type BlockConversionTarget =
   | { type: "list"; style: "ordered" | "unordered" | "checklist" }
   | { type: "quote" }
   | { type: "code" }
-  | { type: "math" };
+  | { type: "math" }
+  | { type: "inlineMath" };
 
 type SlashCommand = {
   id: string;
@@ -138,6 +142,13 @@ const SLASH_COMMANDS: SlashCommand[] = [
     keywords: ["equation", "latex"],
     target: { type: "math" },
   },
+  {
+    id: "inline-math",
+    label: "Inline math",
+    hint: "Small equation block",
+    keywords: ["equation", "latex", "inline"],
+    target: { type: "inlineMath" },
+  },
 ];
 
 function areDocumentsEqual(left: NoteDocument, right: NoteDocument) {
@@ -173,6 +184,7 @@ function getBlockText(block: NoteBlock, options?: { plain?: boolean }) {
     case "code":
       return block.data.code;
     case "math":
+    case "inlineMath":
       return block.data.latex;
     case "image":
       return normalize(block.data.caption);
@@ -243,6 +255,13 @@ function convertBlock(
           latex: normalizeLatex(plainText),
         },
       };
+    case "inlineMath":
+      return {
+        type: "inlineMath",
+        data: {
+          latex: normalizeLatex(plainText),
+        },
+      };
     default:
       return block;
   }
@@ -298,6 +317,13 @@ function createEmptyBlockForTarget(target: BlockConversionTarget): NoteBlock {
     case "math":
       return {
         type: "math",
+        data: {
+          latex: "",
+        },
+      };
+    case "inlineMath":
+      return {
+        type: "inlineMath",
         data: {
           latex: "",
         },
@@ -1618,6 +1644,12 @@ export function NoteEditor({
           math: {
             class: MathBlockTool as unknown as BlockToolConstructable,
           },
+          inlineMath: {
+            class: InlineMathBlockTool as unknown as BlockToolConstructable,
+            config: {
+              variant: "inline",
+            },
+          },
         },
         async onChange() {
           if (changeTimeoutRef.current) {
@@ -2250,6 +2282,13 @@ export function NoteEditor({
                 onClick={() => handleConvertBlock({ type: "math" })}
               >
                 Math
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => handleConvertBlock({ type: "inlineMath" })}
+              >
+                Inline math
               </button>
             </div>
           </div>

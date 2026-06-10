@@ -3,7 +3,7 @@ import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import type { NoteDocument } from "@/lib/notes/types";
 
 describe("normalizeNoteLatexRegions", () => {
-  it("keeps single-dollar math inline inside paragraph blocks", () => {
+  it("converts single-dollar math to inline math blocks", () => {
     const document: NoteDocument = {
       time: 1,
       blocks: [
@@ -20,13 +20,25 @@ describe("normalizeNoteLatexRegions", () => {
       {
         type: "paragraph",
         data: {
-          text: 'Use <span class="note-inline-math" data-latex="x^2 + y^2 = z^2">$x^2 + y^2 = z^2$</span> for the distance relation.',
+          text: "Use",
+        },
+      },
+      {
+        type: "inlineMath",
+        data: {
+          latex: "x^2 + y^2 = z^2",
+        },
+      },
+      {
+        type: "paragraph",
+        data: {
+          text: "for the distance relation.",
         },
       },
     ]);
   });
 
-  it("keeps imported inline math spans inline", () => {
+  it("converts imported inline math spans to inline math blocks", () => {
     const document: NoteDocument = {
       time: 1,
       blocks: [
@@ -43,7 +55,13 @@ describe("normalizeNoteLatexRegions", () => {
       {
         type: "paragraph",
         data: {
-          text: 'Area <span class="note-inline-math" data-latex="\\pi r^2">$\\pi r^2$</span>',
+          text: "Area",
+        },
+      },
+      {
+        type: "inlineMath",
+        data: {
+          latex: "\\pi r^2",
         },
       },
     ]);

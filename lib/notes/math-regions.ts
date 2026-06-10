@@ -9,6 +9,10 @@ type RegionSegment =
   | {
       type: "math";
       latex: string;
+    }
+  | {
+      type: "inlineMath";
+      latex: string;
     };
 type RichTextNoteBlock = Extract<
   NoteBlock,
@@ -29,19 +33,6 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
-}
-
-function escapeHtmlAttr(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function inlineMathSpan(latex: string) {
-  const escaped = escapeHtmlAttr(latex);
-  return `<span class="note-inline-math" data-latex="${escaped}">$${latex}$</span>`;
 }
 
 function hasInlineMathSpan(value: string) {
@@ -117,7 +108,9 @@ function splitLatexRegions(value: string): RegionSegment[] {
     const latex = normalizeLatex(match[1] ?? match[2] ?? match[3] ?? match[4] ?? "");
     if (latex) {
       if (isInline) {
-        pendingText += inlineMathSpan(latex);
+        pushTextSegment(segments, pendingText);
+        pendingText = "";
+        segments.push({ type: "inlineMath", latex });
       } else {
         pushTextSegment(segments, pendingText);
         pendingText = "";
@@ -145,6 +138,15 @@ function paragraphBlock(text: string): NoteBlock {
 function mathBlock(latex: string): NoteBlock {
   return {
     type: "math",
+    data: {
+      latex,
+    },
+  };
+}
+
+function inlineMathBlock(latex: string): NoteBlock {
+  return {
+    type: "inlineMath",
     data: {
       latex,
     },
@@ -211,9 +213,17 @@ function convertRichTextBlock(block: NoteBlock): NoteBlock[] {
     return text === sourceText ? [block] : [richTextBlockLike(block, text)];
   }
 
-  return segments.map((segment) =>
-    segment.type === "math" ? mathBlock(segment.latex) : paragraphBlock(segment.value),
-  );
+  return segments.map((segment) => {
+    if (segment.type === "math") {
+      return mathBlock(segment.latex);
+    }
+
+    if (segment.type === "inlineMath") {
+      return inlineMathBlock(segment.latex);
+    }
+
+    return paragraphBlock(segment.value);
+  });
 }
 
 export function normalizeNoteLatexRegions(document: NoteDocument): NoteDocument {

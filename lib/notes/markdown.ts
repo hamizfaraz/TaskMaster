@@ -134,16 +134,45 @@ function serializeBlock(block: NoteBlock) {
     }
     case "math":
       return `$$\n${block.data.latex}\n$$`;
+    case "inlineMath":
+      return `$${block.data.latex}$`;
     default:
       return "";
   }
 }
 
+function getBlockSeparator(previous: NoteBlock | undefined, current: NoteBlock) {
+  if (
+    previous &&
+    (previous.type === "inlineMath" || current.type === "inlineMath") &&
+    (previous.type === "paragraph" || previous.type === "inlineMath") &&
+    (current.type === "paragraph" || current.type === "inlineMath")
+  ) {
+    return " ";
+  }
+
+  return "\n\n";
+}
+
 export function serializeNoteDocumentToMarkdown(document: NoteDocument) {
-  return document.blocks
-    .map((block) => serializeBlock(block))
-    .filter((block) => block.length > 0)
-    .join("\n\n");
+  const sections: string[] = [];
+  let previousSerializedBlock: NoteBlock | undefined;
+
+  for (const block of document.blocks) {
+    const serialized = serializeBlock(block);
+    if (serialized.length === 0) {
+      continue;
+    }
+
+    if (sections.length > 0) {
+      sections.push(getBlockSeparator(previousSerializedBlock, block));
+    }
+
+    sections.push(serialized);
+    previousSerializedBlock = block;
+  }
+
+  return sections.join("");
 }
 
 export function createNoteContent(document: NoteDocument): NoteContent {
