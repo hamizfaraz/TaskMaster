@@ -3,6 +3,7 @@ export type FlashcardItem = {
   front: string;
   back: string;
   sourceNoteTitles: string[];
+  tags?: string[];
 };
 
 export type FlashcardDeck = {

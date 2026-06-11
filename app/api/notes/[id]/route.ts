@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
+import { normalizeNoteWriteContent } from "@/lib/notes/persistence";
 
 export const runtime = "nodejs";
 
@@ -61,7 +62,18 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
   const updates: Record<string, unknown> = {};
   if (typeof body.title === "string") updates.title = body.title.trim() || "Untitled";
-  if (body.content !== undefined) updates.content = body.content;
+  if (body.content !== undefined) {
+    try {
+      const content = normalizeNoteWriteContent(body.content);
+      updates.content = content.document;
+      updates.markdown = content.markdown;
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid note content" },
+        { status: 400 },
+      );
+    }
+  }
   if (body.classId !== undefined) {
     if (body.classId !== null && typeof body.classId !== "string") {
       return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });

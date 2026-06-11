@@ -71,6 +71,20 @@
       "when": 1777506289321,
       "tag": "0009_ancient_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779687807311,
+      "tag": "0010_warm_squirrel_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779911691545,
+      "tag": "0011_cynical_starbolt",
+      "breakpoints": true
     }
   ]
 }

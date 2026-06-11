@@ -22,8 +22,7 @@ export const primaryNavItems: readonly NavItem[] = [
   { href: "/flashcards", label: "Flashcards", icon: "flashcards" },
   { href: "/quizzes", label: "Quizzes", icon: "quizzes" },
   { href: "/calendar", label: "Calendar", icon: "calendar" },
-  { href: "/resources", label: "Resources", icon: "resources" },
-  { href: "/settings", label: "Settings", icon: "settings" },
+  // { href: "/resources", label: "Resources", icon: "resources" },
 ] as const;
 
 export const studyNavItems = [
@@ -52,7 +51,8 @@ export function getPageTitle(pathname: string) {
   }
 
   return (
-    primaryNavItems.find((item) => item.href === pathname)?.label ?? "TaskMaster"
+    primaryNavItems.find((item) => item.href === pathname)?.label ??
+    "TaskMaster"
   );
 }
 

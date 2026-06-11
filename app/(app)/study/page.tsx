@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
 
 const studyPages = [
   { href: "/study/pomodoro", title: "Pomodoro", description: "A real local timer you can use today.", live: true },
@@ -14,28 +13,24 @@ const studyPages = [
 
 export default function StudyPage() {
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Study"
-        title="Study techniques"
-        description="This section scaffolds the study-method pages around one real Pomodoro timer and a set of polished informational pages."
-      />
-
-      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-        {studyPages.map((item) => (
-          <Link key={item.href} href={item.href}>
-            <Card className="h-full transition hover:border-border-strong hover:bg-surface-muted">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <Badge variant={item.live ? "accent" : "outline"}>{item.live ? "Live" : "Scaffolded"}</Badge>
-                </div>
-                <CardTitle>{item.title}</CardTitle>
-                <CardDescription>{item.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">Open page</CardContent>
-            </Card>
-          </Link>
-        ))}
+    <div className="flex h-full flex-col gap-4">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+          {studyPages.map((item) => (
+            <Link key={item.href} href={item.href}>
+              <Card className="h-full transition hover:border-border-strong hover:bg-surface-muted">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={item.live ? "accent" : "outline"}>{item.live ? "Live" : "Scaffolded"}</Badge>
+                  </div>
+                  <CardTitle>{item.title}</CardTitle>
+                  <CardDescription>{item.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">Open page</CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -73,11 +73,68 @@ export const parseTestPayloadSchema = z.object({
     .transform((warnings) => warnings.filter((warning): warning is string => Boolean(warning?.trim()))),
 });
 
+const reviewCourseSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  courseCode: z.string().trim().max(100).nullable(),
+  courseSection: z.string().trim().max(100).nullable(),
+  term: z.string().trim().max(120).nullable(),
+  instructorName: z.string().trim().max(160).nullable(),
+  meetingDays: z.string().trim().max(160).nullable(),
+  meetingTime: z.string().trim().max(160).nullable(),
+  meetingLocation: z.string().trim().max(200).nullable(),
+  requiredMaterials: z.array(z.string().trim().min(1).max(300)).max(30),
+  homeworkTools: z.array(z.string().trim().min(1).max(200)).max(20),
+  catalogDescription: z.string().trim().max(4000).nullable(),
+  studentSummary: z.string().trim().min(1).max(1000),
+  descriptionSource: z.enum(descriptionSourceValues),
+});
+
+const reviewConceptSchema = z.object({
+  label: z.string().trim().min(1).max(100),
+});
+
+const reviewGradingItemSchema = z.object({
+  label: z.string().trim().min(1).max(100),
+  weightPercent: z.number().min(0).max(100),
+  sourceSnippet: z.string().trim().min(1).max(500),
+});
+
+const reviewAssignmentSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  category: z.string().trim().min(1).max(100),
+  dateText: z.string().trim().min(1).max(200),
+  dueAt: z.string().trim().max(64).nullable(),
+  timeText: z.string().trim().max(100).nullable(),
+  weightPercent: z.number().min(0).max(100).nullable(),
+  sourceSnippet: z.string().trim().min(1).max(500),
+});
+
+const reviewEventSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  category: z.string().trim().min(1).max(100),
+  dateText: z.string().trim().min(1).max(200),
+  dueAt: z.string().trim().max(64).nullable(),
+  timeText: z.string().trim().max(100).nullable(),
+  location: z.string().trim().max(200).nullable(),
+  sourceSnippet: z.string().trim().min(1).max(500),
+});
+
+export const parseTestReviewUpdateSchema = z.object({
+  runId: z.string().trim().min(1),
+  course: reviewCourseSchema,
+  concepts: z.array(reviewConceptSchema).max(20),
+  contacts: z.array(contactSchema).max(20),
+  gradingItems: z.array(reviewGradingItemSchema).max(20),
+  assignments: z.array(reviewAssignmentSchema).max(100),
+  events: z.array(reviewEventSchema).max(200),
+});
+
 export type ParseTestPayload = z.infer<typeof parseTestPayloadSchema>;
 export type ParseTestAssignmentPayload = z.infer<typeof assignmentSchema>;
 export type ParseTestGradingItemPayload = z.infer<typeof gradingItemSchema>;
 export type ParseTestContactPayload = z.infer<typeof contactSchema>;
 export type ParseTestEventPayload = z.infer<typeof eventSchema>;
+export type ParseTestReviewUpdate = z.infer<typeof parseTestReviewUpdateSchema>;
 
 export type ParseTestViewModel = {
   run: {

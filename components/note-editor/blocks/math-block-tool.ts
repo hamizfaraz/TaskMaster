@@ -31,13 +31,14 @@ export class MathBlockTool implements BlockTool {
     event.stopPropagation();
   };
   private readonly handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       event.stopPropagation();
       this.handleInput();
 
       const currentBlockIndex = this.api.blocks.getBlockIndex(this.block.id);
-      this.api.blocks.insert("paragraph", {}, undefined, currentBlockIndex + 1, true);
+      this.api.blocks.insert("paragraph", { text: "<br>" }, undefined, currentBlockIndex + 1, true);
+      this.focusNextBlock();
       return;
     }
 
@@ -109,7 +110,7 @@ export class MathBlockTool implements BlockTool {
   }
 
   public validate(blockData: NoteMathBlockData) {
-    return blockData.latex.trim().length > 0;
+    return typeof blockData.latex === "string";
   }
 
   public destroy() {
@@ -125,5 +126,42 @@ export class MathBlockTool implements BlockTool {
 
     this.mathField = null;
     this.wrapper = null;
+  }
+
+  private focusNextBlock() {
+    const focus = () => {
+      if (typeof document === "undefined") {
+        return;
+      }
+
+      const nextBlock = this.wrapper?.closest(".ce-block")?.nextElementSibling;
+      const focusTarget = nextBlock?.querySelector<HTMLElement>(
+        '[contenteditable="true"], textarea, input, math-field',
+      );
+
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+
+      focusTarget?.focus({ preventScroll: true });
+
+      if (focusTarget?.isContentEditable) {
+        const range = document.createRange();
+        range.selectNodeContents(focusTarget);
+        range.collapse(false);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    };
+
+    window.requestAnimationFrame(() => {
+      focus();
+      window.setTimeout(focus, 0);
+      window.setTimeout(focus, 50);
+      window.setTimeout(focus, 150);
+      window.setTimeout(focus, 350);
+      window.setTimeout(focus, 650);
+    });
   }
 }

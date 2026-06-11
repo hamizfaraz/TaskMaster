@@ -110,7 +110,7 @@ describe("NoteSurface", () => {
     cleanup();
   });
 
-  it("renders by default, enters full-note editor mode, and preserves Editor.js-added blocks", async () => {
+  it("opens directly in full-note editor mode and preserves Editor.js-added blocks", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -139,11 +139,6 @@ describe("NoteSurface", () => {
       />,
     );
 
-    expect(screen.getByText("Hybrid Notes")).toBeInTheDocument();
-    expect(screen.getByText("Original block")).toBeInTheDocument();
-    expect(screen.queryByTestId("mock-note-editor")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByLabelText("Open note editor"));
     expect(screen.getByTestId("mock-note-editor")).toBeInTheDocument();
     expect(screen.getByText("Mock Editor.js UI")).toBeInTheDocument();
     expect(screen.queryByLabelText("Add block at end")).not.toBeInTheDocument();
@@ -157,12 +152,6 @@ describe("NoteSurface", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls.at(-1)?.[0]?.markdown).toContain("Updated block");
 
-    fireEvent.pointerDown(document.body);
-
-    expect(screen.queryByTestId("mock-note-editor")).not.toBeInTheDocument();
-    expect(screen.getByText("Updated block")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByLabelText("Open note editor"));
     fireEvent.click(screen.getByLabelText(/Commit paragraph and ordered list/));
 
     await act(async () => {
@@ -170,17 +159,10 @@ describe("NoteSurface", () => {
     });
 
     expect(onSave).toHaveBeenCalledTimes(2);
-
-    fireEvent.pointerDown(document.body);
-
-    expect(screen.queryByTestId("mock-note-editor")).not.toBeInTheDocument();
-    expect(screen.getByText("Updated block")).toBeInTheDocument();
-    expect(screen.getByText("Inserted item")).toBeInTheDocument();
-    expect(document.querySelector("ol")).not.toBeNull();
     expect(onSave.mock.calls.at(-1)?.[0]?.markdown).toContain("1. Inserted item");
   });
 
-  it("resyncs the preview when the parent supplies a different note", () => {
+  it("resyncs the editor when the parent supplies a different note", () => {
     const { rerender } = render(
       <NoteSurface
         initialDocument={{
@@ -198,7 +180,7 @@ describe("NoteSurface", () => {
       />,
     );
 
-    expect(screen.getByText("First note")).toBeInTheDocument();
+    expect(screen.getByLabelText("Commit paragraph note-a")).toBeInTheDocument();
 
     rerender(
       <NoteSurface
@@ -217,8 +199,8 @@ describe("NoteSurface", () => {
       />,
     );
 
-    expect(screen.queryByText("First note")).not.toBeInTheDocument();
-    expect(screen.getByText("Second note")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Commit paragraph note-a")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Commit paragraph note-b")).toBeInTheDocument();
   });
 
   it("does not double-fire onContentChange when a save completes", async () => {
@@ -243,7 +225,6 @@ describe("NoteSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText("Open note editor"));
     fireEvent.click(screen.getByLabelText("Commit paragraph header-1"));
 
     await act(async () => {
@@ -253,7 +234,7 @@ describe("NoteSurface", () => {
     expect(onContentChange).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps rendered links clickable and does not force editor mode", () => {
+  it("renders markdown in read-only mode", () => {
     render(
       <NoteSurface
         initialDocument={{
@@ -268,35 +249,31 @@ describe("NoteSurface", () => {
             },
           ],
         }}
+        readOnly
       />,
     );
-
-    fireEvent.click(screen.getByRole("link", { name: "Open link" }));
 
     expect(screen.queryByTestId("mock-note-editor")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open link" })).toBeInTheDocument();
   });
 
-  it("stays in editor mode when configured to keep editing while empty", () => {
+  it("stays in editor mode for empty notes", () => {
     render(
       <NoteSurface
         initialDocument={{
           time: 1,
           blocks: [],
         }}
-        keepEditingWhenEmpty
       />,
     );
 
     expect(screen.getByTestId("mock-note-editor")).toBeInTheDocument();
     expect(screen.queryByText("No note content yet.")).not.toBeInTheDocument();
 
-    fireEvent.pointerDown(document.body);
-
     expect(screen.getByTestId("mock-note-editor")).toBeInTheDocument();
   });
 
-  it("does not close the editor when interacting with MathLive chrome", () => {
+  it("keeps the editor open when interacting outside the editor", () => {
     render(
       <NoteSurface
         initialDocument={{
@@ -314,37 +291,8 @@ describe("NoteSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText("Open note editor"));
     expect(screen.getByTestId("mock-note-editor")).toBeInTheDocument();
-
-    const virtualKeyboard = document.createElement("div");
-    virtualKeyboard.className = "MLK__plate";
-    document.body.append(virtualKeyboard);
-
-    fireEvent.pointerDown(virtualKeyboard);
-
-    expect(screen.getByTestId("mock-note-editor")).toBeInTheDocument();
-  });
-
-  it("opens the editor when clicking non-interactive preview content", () => {
-    render(
-      <NoteSurface
-        initialDocument={{
-          time: 1,
-          blocks: [
-            {
-              id: "paragraph-1",
-              type: "paragraph",
-              data: {
-                text: "Clickable preview",
-              },
-            },
-          ],
-        }}
-      />,
-    );
-
-    fireEvent.click(screen.getByText("Clickable preview"));
+    fireEvent.pointerDown(document.body);
 
     expect(screen.getByTestId("mock-note-editor")).toBeInTheDocument();
   });

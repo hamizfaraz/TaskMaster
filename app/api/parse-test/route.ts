@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { MAX_PARSE_TEST_FILE_BYTES } from "@/lib/parse-test/contracts";
+import { MAX_PARSE_TEST_FILE_BYTES, parseTestReviewUpdateSchema } from "@/lib/parse-test/contracts";
 import { isParseTestEnabled } from "@/lib/parse-test/feature";
 import {
   deleteParseTestRun,
   getParseTestErrorResponse,
+  updateParseTestReview,
 } from "@/lib/parse-test/service";
 import { createParseTestUploadStream, jsonError } from "./streaming";
 
@@ -58,6 +59,39 @@ export async function POST(request: Request) {
         "Cache-Control": "no-cache, no-transform",
       },
     });
+  } catch (error) {
+    const { message, status, details } = getParseTestErrorResponse(error);
+    return jsonError(message, status, Array.isArray(details?.logs) ? (details.logs as string[]) : []);
+  }
+}
+
+export async function PATCH(request: Request) {
+  if (!isParseTestEnabled()) {
+    return jsonError("ParseTest is disabled.", 404);
+  }
+
+  try {
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session) {
+      return jsonError("Sign in before updating a saved class.", 401);
+    }
+
+    const body = await request.json();
+    const parsed = parseTestReviewUpdateSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return jsonError("Review values could not be saved. Check required fields and try again.", 400);
+    }
+
+    const viewModel = await updateParseTestReview({
+      userId: session.user.id,
+      payload: parsed.data,
+    });
+
+    return NextResponse.json({ ok: true, viewModel });
   } catch (error) {
     const { message, status, details } = getParseTestErrorResponse(error);
     return jsonError(message, status, Array.isArray(details?.logs) ? (details.logs as string[]) : []);

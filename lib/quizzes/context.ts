@@ -1,8 +1,6 @@
 import { and, inArray, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
-import { createNoteContent } from "@/lib/notes/markdown";
-import { normalizeNoteDocument } from "@/lib/notes/records";
 import type { QuizContextNote } from "@/lib/quizzes/gemini";
 
 const MAX_MARKDOWN_CHARS_PER_NOTE = 18_000;
@@ -13,12 +11,6 @@ function normalizeEmbedding(value: unknown) {
   }
 
   return value.filter((item): item is number => typeof item === "number");
-}
-
-function getMarkdownFromContent(value: unknown) {
-  const document = normalizeNoteDocument(value);
-  const content = createNoteContent(document);
-  return content.markdown.trim();
 }
 
 export async function getQuizContextNotes(params: {
@@ -34,7 +26,7 @@ export async function getQuizContextNotes(params: {
     .select({
       id: note.id,
       title: note.title,
-      content: note.content,
+      markdown: note.markdown,
       embedding: note.embedding,
     })
     .from(note)
@@ -43,7 +35,7 @@ export async function getQuizContextNotes(params: {
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
-    markdown: getMarkdownFromContent(row.content).slice(0, MAX_MARKDOWN_CHARS_PER_NOTE),
+    markdown: row.markdown.trim().slice(0, MAX_MARKDOWN_CHARS_PER_NOTE),
     embedding: normalizeEmbedding(row.embedding),
   }));
 }

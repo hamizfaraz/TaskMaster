@@ -2,17 +2,9 @@
 
 import { useState, useTransition, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { ParseTestViewModel } from "@/lib/parse-test/contracts";
-import { EventFeed } from "./components/event-feed";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { UploadPanel } from "./components/upload-panel";
-
-type ParseTestClientProps = {
-  hasPreview: boolean;
-  courseTitle: string | null;
-  events: ParseTestViewModel["events"];
-  savedAt: string | null;
-  totalSavedClasses: number;
-};
 
 type ParseStreamEvent =
   | { type: "start" }
@@ -20,74 +12,33 @@ type ParseStreamEvent =
   | { type: "result"; ok: true; isDuplicate?: boolean; runId?: string }
   | { type: "error"; error: string; status?: number };
 
-function formatDisplayDate(dueAt: string | null, dateText: string) {
-  if (!dueAt) {
-    return dateText;
-  }
+type ParsedUpload = {
+  isDuplicate: boolean;
+  runId: string;
+};
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(dueAt));
-}
-
-function formatSavedAt(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function slugifyFilePart(value: string | null) {
-  const base = (value || "parse-test-events")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return base || "parse-test-events";
-}
-
-export function ParseTestClient({
-  hasPreview,
-  courseTitle,
-  events,
-  savedAt,
-  totalSavedClasses,
-}: ParseTestClientProps) {
+export function ParseTestClient() {
   const router = useRouter();
   const [isNavigating, startTransition] = useTransition();
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
-  const [activityLogs, setActivityLogs] = useState<string[]>([]);
+  const [statusText, setStatusText] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [parsedUpload, setParsedUpload] = useState<ParsedUpload | null>(null);
 
   async function handleSubmit(formData: FormData) {
-    setError(null);
-    setExportMessage(null);
-    setActivityLogs([]);
+    setParsedUpload(null);
 
     const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setMessage(null);
-      setError("Choose a syllabus PDF before starting the parse.");
+      setStatusText(null);
+      toast.error("Choose a syllabus PDF before starting the parse.");
       return;
     }
 
     setIsUploading(true);
-    setMessage("Parsing the syllabus and saving your preview to SQL.");
-    setActivityLogs([
-      `Selected file: ${file.name}`,
-      "Submitting the upload to the ParseTest API.",
-      "Waiting for local validation, duplicate detection, Gemini, and SQL persistence.",
-    ]);
+    setProgress(12);
+    setStatusText("Uploading syllabus...");
 
     try {
       const response = await fetch("/api/parse-test", {
@@ -99,7 +50,7 @@ export function ParseTestClient({
         const payload = (await response.json().catch(() => null)) as
           | { error?: string; logs?: string[] }
           | null;
-        setActivityLogs(payload?.logs ?? []);
+        setStatusText(payload?.logs?.at(-1) ?? null);
         throw new Error(payload?.error || "ParseTest could not parse the uploaded syllabus.");
       }
 
@@ -133,7 +84,8 @@ export function ParseTestClient({
           const event = JSON.parse(trimmed) as ParseStreamEvent;
 
           if (event.type === "log") {
-            setActivityLogs((current) => current.concat(event.message));
+            setStatusText(event.message);
+            setProgress((current) => Math.min(92, current + 13));
             continue;
           }
 
@@ -150,7 +102,8 @@ export function ParseTestClient({
       if (buffer.trim()) {
         const event = JSON.parse(buffer.trim()) as ParseStreamEvent;
         if (event.type === "log") {
-          setActivityLogs((current) => current.concat(event.message));
+          setStatusText(event.message);
+          setProgress((current) => Math.min(92, current + 13));
         } else if (event.type === "error") {
           streamError = event.error;
         } else if (event.type === "result") {
@@ -166,24 +119,20 @@ export function ParseTestClient({
         throw new Error("ParseTest finished without a final result.");
       }
 
-      const uploadStatus = finalResult.isDuplicate ? "duplicate" : "parsed";
-      setMessage(
-        finalResult.isDuplicate
-          ? "This syllabus matches your current saved record. Reloading the SQL preview."
-          : "Syllabus parsed and saved to SQL. Reloading the preview from the database now.",
-      );
-      setActivityLogs((current) => current.concat("Refreshing the page with the saved SQL-backed preview."));
+      if (!finalResult.runId) {
+        throw new Error("ParseTest finished without a saved class id.");
+      }
 
-      startTransition(() => {
-        const nextUrl = finalResult.runId
-          ? `/parse-test?run=${encodeURIComponent(finalResult.runId)}&upload=${uploadStatus}`
-          : `/parse-test?upload=${uploadStatus}`;
-        router.replace(nextUrl);
-        router.refresh();
+      setProgress(100);
+      setStatusText("Syllabus parsed.");
+      setParsedUpload({
+        isDuplicate: Boolean(finalResult.isDuplicate),
+        runId: finalResult.runId,
       });
     } catch (submissionError) {
-      setMessage(null);
-      setError(
+      setProgress(0);
+      setStatusText(null);
+      toast.error(
         submissionError instanceof Error
           ? submissionError.message
           : "ParseTest hit an unexpected upload error.",
@@ -196,67 +145,78 @@ export function ParseTestClient({
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0] ?? null;
     setSelectedFileName(file?.name ?? null);
-    setMessage(null);
-    setError(null);
-    setActivityLogs([]);
+    setStatusText(null);
+    setProgress(0);
+    setParsedUpload(null);
   }
 
-  function handleExport() {
-    if (events.length === 0) {
-      setExportMessage("No saved events are available to export yet.");
+  function openReview() {
+    if (!parsedUpload) {
       return;
     }
 
-    const payload = {
-      course: courseTitle,
-      exportedAt: new Date().toISOString(),
-      events: events.map((event) => ({
-        title: event.title,
-        category: event.category,
-        isoDate: event.dueAt,
-        dateText: event.dateText,
-        timeText: event.timeText,
-        location: event.location,
-        sourceSnippet: event.sourceSnippet,
-      })),
-    };
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json;charset=utf-8",
+    startTransition(() => {
+      router.push(`/parse-test?run=${encodeURIComponent(parsedUpload.runId)}&review=1`);
+      router.refresh();
     });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${slugifyFilePart(courseTitle)}-events.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  }
 
-    setExportMessage("UTF-8 JSON export downloaded from the saved SQL event feed.");
+  function importClass() {
+    if (!parsedUpload) {
+      return;
+    }
+
+    startTransition(() => {
+      router.push(`/classes/${encodeURIComponent(parsedUpload.runId)}`);
+      router.refresh();
+    });
   }
 
   const isBusy = isUploading || isNavigating;
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-full items-center justify-center px-4 py-10">
       <UploadPanel
-        hasPreview={hasPreview}
-        totalSavedClasses={totalSavedClasses}
         selectedFileName={selectedFileName}
         isBusy={isBusy}
-        message={message}
-        error={error}
-        activityLogs={activityLogs}
+        statusText={statusText}
+        progress={progress}
         onFileChange={handleFileChange}
         onSubmit={handleSubmit}
       />
-      <EventFeed
-        events={events}
-        savedAt={savedAt}
-        exportMessage={exportMessage}
-        onExport={handleExport}
-        formatDisplayDate={formatDisplayDate}
-        formatSavedAt={formatSavedAt}
-      />
+
+      {parsedUpload ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 px-4"
+          role="presentation"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="syllabus-import-title"
+            className="w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-surface p-5 shadow-[var(--shadow-card)]"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {parsedUpload.isDuplicate ? "Syllabus already imported" : "Syllabus ready"}
+            </p>
+            <h2 id="syllabus-import-title" className="mt-2 text-xl font-semibold tracking-tight text-foreground">
+              Import this class?
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              You can review and edit the parsed class details first, or import it now and make
+              changes later from the class page.
+            </p>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <Button type="button" variant="outline" disabled={isNavigating} onClick={openReview}>
+                Review / edit
+              </Button>
+              <Button type="button" disabled={isNavigating} onClick={importClass}>
+                Import now
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

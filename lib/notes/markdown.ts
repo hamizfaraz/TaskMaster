@@ -2,6 +2,13 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 import type { NoteBlock, NoteContent, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
 
+// Re-export the canonical parser from its own module.
+export { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
+
+// ---------------------------------------------------------------------------
+// NoteDocument → Markdown serializer
+// ---------------------------------------------------------------------------
+
 const turndown = new TurndownService({
   bulletListMarker: "-",
   codeBlockStyle: "fenced",
@@ -50,6 +57,17 @@ function createCodeFence(code: string) {
   return "`".repeat(Math.max(3, longestFence + 1));
 }
 
+/**
+ * Convert <span class="note-inline-math" data-latex="…">…</span> back to $…$
+ * so that the round-trip markdown stays clean.
+ */
+function restoreInlineMath(html: string): string {
+  return html.replace(
+    /<span[^>]*class="note-inline-math"[^>]*data-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi,
+    (_, latex: string) => `$${latex}$`,
+  );
+}
+
 function prefixLines(value: string, prefix: string) {
   return value
     .split("\n")
@@ -85,7 +103,7 @@ function serializeListItems(
 function serializeBlock(block: NoteBlock) {
   switch (block.type) {
     case "paragraph":
-      return htmlToMarkdown(block.data.text);
+      return htmlToMarkdown(restoreInlineMath(block.data.text));
     case "header": {
       const level = Math.min(Math.max(block.data.level, 1), 4);
       const content = htmlToMarkdown(block.data.text);
@@ -96,7 +114,7 @@ function serializeBlock(block: NoteBlock) {
       return serializeListItems(block.data.items, block.data.style, 0, start).join("\n");
     }
     case "quote": {
-      const quoteText = htmlToMarkdown(block.data.text);
+      const quoteText = htmlToMarkdown(restoreInlineMath(block.data.text));
       const caption = htmlToMarkdown(block.data.caption);
       return [quoteText, caption]
         .filter(Boolean)
@@ -105,7 +123,12 @@ function serializeBlock(block: NoteBlock) {
     }
     case "code": {
       const fence = createCodeFence(block.data.code);
-      return `${fence}\n${block.data.code}\n${fence}`;
+      const lang = block.data.language ?? "";
+      return `${fence}${lang}\n${block.data.code}\n${fence}`;
+    }
+    case "mermaid": {
+      const fence = createCodeFence(block.data.code);
+      return `${fence}mermaid\n${block.data.code}\n${fence}`;
     }
     case "image": {
       const altText = htmlToPlainText(block.data.caption) || "Image";

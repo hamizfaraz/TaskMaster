@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { getButtonClassName } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 
 export type CalendarEvent = {
@@ -34,7 +32,6 @@ type CalendarDay = {
 type ClassColor = {
   chip: string;
   count: string;
-  row: string;
   stripe: string;
 };
 
@@ -43,37 +40,31 @@ const CLASS_COLOR_PALETTE: ClassColor[] = [
   {
     chip: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200",
     count: "bg-sky-50 text-sky-800 shadow-[inset_0_0_0_1px_rgb(186_230_253)] dark:bg-sky-950/40 dark:text-sky-200 dark:shadow-[inset_0_0_0_1px_rgb(12_74_110)]",
-    row: "border-sky-200 bg-sky-50/70 dark:border-sky-900/70 dark:bg-sky-950/30",
     stripe: "bg-sky-500",
   },
   {
     chip: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200",
     count: "bg-emerald-50 text-emerald-800 shadow-[inset_0_0_0_1px_rgb(167_243_208)] dark:bg-emerald-950/40 dark:text-emerald-200 dark:shadow-[inset_0_0_0_1px_rgb(6_78_59)]",
-    row: "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900/70 dark:bg-emerald-950/30",
     stripe: "bg-emerald-500",
   },
   {
     chip: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200",
     count: "bg-amber-50 text-amber-900 shadow-[inset_0_0_0_1px_rgb(253_230_138)] dark:bg-amber-950/40 dark:text-amber-200 dark:shadow-[inset_0_0_0_1px_rgb(120_53_15)]",
-    row: "border-amber-200 bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/30",
     stripe: "bg-amber-500",
   },
   {
     chip: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-200",
     count: "bg-rose-50 text-rose-800 shadow-[inset_0_0_0_1px_rgb(254_205_211)] dark:bg-rose-950/40 dark:text-rose-200 dark:shadow-[inset_0_0_0_1px_rgb(136_19_55)]",
-    row: "border-rose-200 bg-rose-50/70 dark:border-rose-900/70 dark:bg-rose-950/30",
     stripe: "bg-rose-500",
   },
   {
     chip: "border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900/70 dark:bg-violet-950/40 dark:text-violet-200",
     count: "bg-violet-50 text-violet-800 shadow-[inset_0_0_0_1px_rgb(221_214_254)] dark:bg-violet-950/40 dark:text-violet-200 dark:shadow-[inset_0_0_0_1px_rgb(76_29_149)]",
-    row: "border-violet-200 bg-violet-50/70 dark:border-violet-900/70 dark:bg-violet-950/30",
     stripe: "bg-violet-500",
   },
   {
     chip: "border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900/70 dark:bg-cyan-950/40 dark:text-cyan-200",
     count: "bg-cyan-50 text-cyan-800 shadow-[inset_0_0_0_1px_rgb(165_243_252)] dark:bg-cyan-950/40 dark:text-cyan-200 dark:shadow-[inset_0_0_0_1px_rgb(22_78_99)]",
-    row: "border-cyan-200 bg-cyan-50/70 dark:border-cyan-900/70 dark:bg-cyan-950/30",
     stripe: "bg-cyan-500",
   },
 ];
@@ -162,62 +153,9 @@ function buildCalendarDays(monthDate: Date, todayKey: string) {
   });
 }
 
-function getUpcomingEvents(events: CalendarEvent[], todayKey: string) {
-  return events
-    .filter((event) => {
-      const eventKey = getEventDateKey(event);
-      return !eventKey || eventKey >= todayKey;
-    })
-    .sort((first, second) => {
-      const firstKey = getEventDateKey(first) ?? "9999-12-31";
-      const secondKey = getEventDateKey(second) ?? "9999-12-31";
-      return firstKey.localeCompare(secondKey);
-    })
-    .slice(0, 8);
-}
-
 function isRecurringEvent(event: CalendarEvent) {
   return RECURRING_EVENT_PATTERN.test(
     [event.title, event.category, event.dateText].join(" "),
-  );
-}
-
-function getEventMeta(event: CalendarEvent) {
-  return [
-    formatEventDate(event),
-    event.timeText,
-    event.location,
-  ].filter(Boolean).join(" / ");
-}
-
-function EventRow({
-  event,
-  color,
-  onOpen,
-}: {
-  event: CalendarEvent;
-  color: ClassColor;
-  onOpen: (event: CalendarEvent) => void;
-}) {
-  return (
-    <article className={cx("rounded-[var(--radius-lg)] border px-4 py-3", color.row)}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={cx("rounded-full border px-2 py-0.5 text-[0.7rem] font-semibold", color.chip)}>
-          {event.courseTitle}
-        </span>
-        <Badge variant="outline">{event.category}</Badge>
-      </div>
-      <button
-        type="button"
-        onClick={() => onOpen(event)}
-        className="mt-2 block w-full rounded-md text-left text-sm font-semibold leading-5 text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-      >
-        {event.title}
-      </button>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-        {getEventMeta(event)}
-      </p>
-    </article>
   );
 }
 
@@ -350,13 +288,6 @@ export function CalendarClient({ events, initialDate }: CalendarClientProps) {
     }
     return grouped;
   }, [visibleEvents]);
-  const selectedDay = days.find((day) => day.key === selectedKey);
-  const selectedDate = selectedDay?.date ?? today;
-  const selectedEvents = eventsByDate.get(selectedKey) ?? [];
-  const upcomingEvents = useMemo(
-    () => getUpcomingEvents(visibleEvents, todayKey),
-    [todayKey, visibleEvents],
-  );
   const colorByCourseId = useMemo(() => {
     const courseIds = Array.from(new Set(events.map((event) => event.courseId))).sort();
     return new Map(
@@ -410,218 +341,148 @@ export function CalendarClient({ events, initialDate }: CalendarClientProps) {
   }, [activeEventId]);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <section className="overflow-x-auto rounded-[var(--radius-xl)] border border-border bg-surface shadow-[var(--shadow-card)]">
-        <div className="min-w-[720px]">
-          <div className="flex flex-col gap-4 border-b border-border px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Month view
-              </p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-                {formatMonthLabel(visibleMonth)}
-              </h2>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium text-muted-foreground transition hover:border-border-strong hover:text-foreground">
-                <input
-                  type="checkbox"
-                  checked={showRecurring}
-                  onChange={(event) => setShowRecurring(event.currentTarget.checked)}
-                  className="h-3.5 w-3.5 accent-current"
-                />
-                Recurring
-                {recurringEventCount > 0 ? (
-                  <span className="text-xs text-muted-foreground">
-                    {recurringEventCount}
-                  </span>
-                ) : null}
-              </label>
-              <button
-                type="button"
-                onClick={() => moveVisibleMonth(-1)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition hover:border-border-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-                aria-label="Previous month"
-              >
-                <Chevron direction="left" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const current = startOfMonth(new Date());
-                  setVisibleMonth(current);
-                  setSelectedKey(getLocalDateKey(new Date()));
-                }}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-surface-muted px-3 text-sm font-medium text-foreground transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                onClick={() => moveVisibleMonth(1)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition hover:border-border-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-                aria-label="Next month"
-              >
-                <Chevron direction="right" />
-              </button>
-            </div>
+    <div className="h-full min-h-0">
+      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-xl)] border border-border bg-surface shadow-[var(--shadow-card)]">
+        <div className="shrink-0 flex flex-col gap-3 border-b border-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Month view
+            </p>
+            <h2 className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
+              {formatMonthLabel(visibleMonth)}
+            </h2>
           </div>
 
-          <div className="grid grid-cols-7 border-b border-border bg-surface-muted/55">
-            {WEEKDAYS.map((weekday) => (
-              <div
-                key={weekday}
-                className="px-2 py-3 text-center text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
-              >
-                {weekday}
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7">
-            {days.map((day, index) => {
-              const dayEvents = eventsByDate.get(day.key) ?? [];
-              const selected = selectedKey === day.key;
-
-              return (
-                <div
-                  key={day.key}
-                  className={cx(
-                    "min-h-[7.4rem] border-b border-border p-2 transition",
-                    index % 7 !== 6 && "border-r",
-                    !day.isCurrentMonth && "bg-surface-muted/35 text-muted-foreground",
-                    selected && "bg-accent-soft",
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedKey(day.key)}
-                    className="flex w-full items-center justify-between gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-                    aria-pressed={selected}
-                    aria-label={`${formatLongDate(day.date)}, ${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}`}
-                  >
-                    <span
-                      className={cx(
-                        "inline-flex h-7 w-7 items-center justify-center rounded-md text-sm font-medium",
-                        day.isToday && "bg-foreground text-background",
-                        selected &&
-                          !day.isToday &&
-                          "bg-surface text-accent shadow-[inset_0_0_0_1px_var(--border)]",
-                      )}
-                    >
-                      {day.dayNumber}
-                    </span>
-                    {dayEvents.length > 0 ? (
-                      <span className={cx("rounded-full px-2 py-0.5 text-[0.68rem] font-semibold", getClassColor(dayEvents[0].courseId).count)}>
-                        {dayEvents.length}
-                      </span>
-                    ) : null}
-                  </button>
-
-                  <div className="mt-3 space-y-1">
-                    {dayEvents.slice(0, 2).map((event) => (
-                      <button
-                        key={event.id}
-                        type="button"
-                        onClick={() => openEvent(event)}
-                        className={cx(
-                          "block w-full truncate rounded-md border px-2 py-1 text-left text-[0.72rem] font-medium transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35",
-                          getClassColor(event.courseId).chip,
-                        )}
-                      >
-                        {event.title}
-                      </button>
-                    ))}
-                    {dayEvents.length > 2 ? (
-                      <div className="px-2 text-[0.7rem] font-medium text-muted-foreground">
-                        +{dayEvents.length - 2} more
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm text-muted-foreground">
-            <span>
-              {eventsThisMonth} event{eventsThisMonth === 1 ? "" : "s"} this month
-            </span>
-            <span>
-              {visibleEvents.length} visible of {events.length} parsed event{events.length === 1 ? "" : "s"}
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium text-muted-foreground transition hover:border-border-strong hover:text-foreground">
+              <input
+                type="checkbox"
+                checked={showRecurring}
+                onChange={(event) => setShowRecurring(event.currentTarget.checked)}
+                className="h-3.5 w-3.5 accent-current"
+              />
+              Recurring
+              {recurringEventCount > 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  {recurringEventCount}
+                </span>
+              ) : null}
+            </label>
+            <button
+              type="button"
+              onClick={() => moveVisibleMonth(-1)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition hover:border-border-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+              aria-label="Previous month"
+            >
+              <Chevron direction="left" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const current = startOfMonth(new Date());
+                setVisibleMonth(current);
+                setSelectedKey(getLocalDateKey(new Date()));
+              }}
+              className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-surface-muted px-3 text-sm font-medium text-foreground transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => moveVisibleMonth(1)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition hover:border-border-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+              aria-label="Next month"
+            >
+              <Chevron direction="right" />
+            </button>
           </div>
         </div>
-      </section>
 
-      <aside className="space-y-5">
-        <section className="rounded-[var(--radius-xl)] border border-border bg-surface p-5 shadow-[var(--shadow-card)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Selected day
-          </p>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">
-            {formatLongDate(selectedDate)}
-          </h2>
-
-          <div className="mt-4 space-y-3">
-            {selectedEvents.length > 0 ? (
-              selectedEvents.map((event) => (
-                <EventRow
-                  key={event.id}
-                  event={event}
-                  color={getClassColor(event.courseId)}
-                  onOpen={openEvent}
-                />
-              ))
-            ) : (
-              <div className="rounded-[var(--radius-lg)] border border-dashed border-border bg-surface-muted px-4 py-6 text-sm leading-6 text-muted-foreground">
-                No parsed syllabus events are scheduled for this date.
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-[var(--radius-xl)] border border-border bg-surface p-5 shadow-[var(--shadow-card)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Upcoming
-              </p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">
-                Agenda
-              </h2>
+        <div className="shrink-0 grid grid-cols-7 border-b border-border bg-surface-muted/55">
+          {WEEKDAYS.map((weekday) => (
+            <div
+              key={weekday}
+              className="px-2 py-2 text-center text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+            >
+              {weekday}
             </div>
-            {events.length === 0 ? (
-              <Link href="/parse-test" className={getButtonClassName("outline", "sm")}>
-                Upload
-              </Link>
-            ) : null}
-          </div>
+          ))}
+        </div>
 
-          <div className="mt-4 space-y-3">
-            {upcomingEvents.length > 0 ? (
-              upcomingEvents.map((event) => (
-                <EventRow
-                  key={event.id}
-                  event={event}
-                  color={getClassColor(event.courseId)}
-                  onOpen={openEvent}
-                />
-              ))
-            ) : (
-              <div className="rounded-[var(--radius-lg)] border border-dashed border-border bg-surface-muted px-4 py-6">
-                <p className="text-sm font-medium text-foreground">
-                  No upcoming parsed events yet.
-                </p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Upload a syllabus to populate this calendar with class dates.
-                </p>
+        <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6">
+          {days.map((day, index) => {
+            const dayEvents = eventsByDate.get(day.key) ?? [];
+            const selected = selectedKey === day.key;
+
+            return (
+              <div
+                key={day.key}
+                className={cx(
+                  "min-h-0 overflow-hidden border-b border-border p-1.5 transition",
+                  index % 7 !== 6 && "border-r",
+                  !day.isCurrentMonth && "bg-surface-muted/35 text-muted-foreground",
+                  selected && "bg-accent-soft",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedKey(day.key)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+                  aria-pressed={selected}
+                  aria-label={`${formatLongDate(day.date)}, ${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}`}
+                >
+                  <span
+                    className={cx(
+                      "inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-medium",
+                      day.isToday && "bg-foreground text-background",
+                      selected &&
+                        !day.isToday &&
+                        "bg-surface text-accent shadow-[inset_0_0_0_1px_var(--border)]",
+                    )}
+                  >
+                    {day.dayNumber}
+                  </span>
+                  {dayEvents.length > 0 ? (
+                    <span className={cx("rounded-full px-2 py-0.5 text-[0.68rem] font-semibold", getClassColor(dayEvents[0].courseId).count)}>
+                      {dayEvents.length}
+                    </span>
+                  ) : null}
+                </button>
+
+                <div className="mt-1.5 space-y-1">
+                  {dayEvents.slice(0, 3).map((event) => (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => openEvent(event)}
+                      className={cx(
+                        "block w-full truncate rounded-md border px-1.5 py-0.5 text-left text-[0.65rem] font-medium transition hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35",
+                        getClassColor(event.courseId).chip,
+                      )}
+                    >
+                      {event.title}
+                    </button>
+                  ))}
+                  {dayEvents.length > 3 ? (
+                    <div className="px-1.5 text-[0.65rem] font-medium text-muted-foreground">
+                      +{dayEvents.length - 3} more
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            )}
-          </div>
-        </section>
-      </aside>
+            );
+          })}
+        </div>
+
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+          <span>
+            {eventsThisMonth} event{eventsThisMonth === 1 ? "" : "s"} this month
+          </span>
+          <span>
+            {visibleEvents.length} visible of {events.length} parsed event{events.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </section>
       {activeEvent ? (
         <EventDialog
           event={activeEvent}

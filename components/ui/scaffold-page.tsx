@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
 
 type ScaffoldPageProps = {
   eyebrow: string;
@@ -13,19 +12,17 @@ type ScaffoldPageProps = {
 };
 
 export function ScaffoldPage({
-  eyebrow,
-  title,
-  description,
   emptyTitle,
   emptyDescription,
   action,
   children,
 }: ScaffoldPageProps) {
   return (
-    <div className="space-y-6">
-      <PageHeader eyebrow={eyebrow} title={title} description={description} />
-      {children}
-      <EmptyState eyebrow="Scaffolded" title={emptyTitle} description={emptyDescription} action={action} />
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto space-y-4">
+        {children}
+        <EmptyState eyebrow="Scaffolded" title={emptyTitle} description={emptyDescription} action={action} />
+      </div>
     </div>
   );
 }

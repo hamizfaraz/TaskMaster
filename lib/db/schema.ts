@@ -97,6 +97,7 @@ export const note = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull().default("Untitled"),
     content: jsonb("content"),
+    markdown: text("markdown").notNull().default(""),
     sourceType: noteSourceEnum("source_type").notNull().default("manual"),
     fileUrl: text("file_url"),
     fileName: text("file_name"),
@@ -144,6 +145,74 @@ export const flashcards = pgTable(
   (table) => [
     index("flashcards_user_id_idx").on(table.userId),
     index("flashcards_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const quizzes = pgTable(
+  "quizzes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    sourceNoteIds: text("source_note_ids")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    sourceNoteTitles: text("source_note_titles")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    questions: jsonb("questions").notNull(),
+    questionCount: integer("question_count").notNull(),
+    difficulty: text("difficulty").notNull(),
+    mode: text("mode").notNull(),
+    questionTypes: text("question_types")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    timeLimitMinutes: integer("time_limit_minutes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("quizzes_user_id_idx").on(table.userId),
+    index("quizzes_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const quizAttempts = pgTable(
+  "quiz_attempts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    quizId: text("quiz_id")
+      .notNull()
+      .references(() => quizzes.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    answers: jsonb("answers").notNull(),
+    score: doublePrecision("score").notNull(),
+    correctCount: integer("correct_count").notNull(),
+    answeredCount: integer("answered_count").notNull(),
+    questionCount: integer("question_count").notNull(),
+    completedAt: timestamp("completed_at").defaultNow().notNull(),
+    timeSpentSeconds: integer("time_spent_seconds"),
+    mode: text("mode").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("quiz_attempts_quiz_id_idx").on(table.quizId),
+    index("quiz_attempts_user_id_idx").on(table.userId),
+    index("quiz_attempts_created_at_idx").on(table.createdAt),
   ],
 );
 
@@ -345,6 +414,8 @@ export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   notes: many(note),
   flashcards: many(flashcards),
+  quizzes: many(quizzes),
+  quizAttempts: many(quizAttempts),
   parseTestRuns: many(parseTestRun),
 }));
 
@@ -377,6 +448,25 @@ export const flashcardsRelations = relations(flashcards, ({ one }) => ({
   user: one(user, {
     fields: [flashcards.userId],
     references: [user.id],
+  }),
+}));
+
+export const quizzesRelations = relations(quizzes, ({ one, many }) => ({
+  user: one(user, {
+    fields: [quizzes.userId],
+    references: [user.id],
+  }),
+  attempts: many(quizAttempts),
+}));
+
+export const quizAttemptsRelations = relations(quizAttempts, ({ one }) => ({
+  user: one(user, {
+    fields: [quizAttempts.userId],
+    references: [user.id],
+  }),
+  quiz: one(quizzes, {
+    fields: [quizAttempts.quizId],
+    references: [quizzes.id],
   }),
 }));
 

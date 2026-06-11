@@ -4,28 +4,7 @@ import { db } from "@/lib/db";
 import { flashcards, note } from "@/lib/db/schema";
 import { requireServerSession } from "@/lib/auth-session";
 import { FlashcardsClient } from "@/app/flashcards/flashcards-client";
-import type { FlashcardDeck, FlashcardItem } from "@/lib/flashcards/types";
-
-function normalizeCards(value: unknown): FlashcardItem[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is FlashcardItem => {
-    if (!item || typeof item !== "object") {
-      return false;
-    }
-
-    const candidate = item as Partial<FlashcardItem>;
-    return (
-      typeof candidate.id === "string" &&
-      typeof candidate.front === "string" &&
-      typeof candidate.back === "string" &&
-      Array.isArray(candidate.sourceNoteTitles) &&
-      candidate.sourceNoteTitles.every((title) => typeof title === "string")
-    );
-  });
-}
+import { rowToFlashcardDeck } from "@/lib/flashcards/decks";
 
 export default async function FlashcardsPage() {
   await connection();
@@ -57,15 +36,7 @@ export default async function FlashcardsPage() {
       .orderBy(desc(flashcards.createdAt)),
   ]);
 
-  const decks: FlashcardDeck[] = deckRows.map((deck) => ({
-    id: deck.id,
-    title: deck.title,
-    sourceNoteIds: deck.sourceNoteIds,
-    cards: normalizeCards(deck.cards),
-    cardCount: deck.cardCount,
-    createdAt: deck.createdAt.toISOString(),
-    updatedAt: deck.updatedAt.toISOString(),
-  }));
+  const decks = deckRows.map(rowToFlashcardDeck);
 
   return (
     <FlashcardsClient

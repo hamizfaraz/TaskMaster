@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
 
 type StudyMethodPageProps = {
   eyebrow?: string;
@@ -12,18 +11,16 @@ type StudyMethodPageProps = {
 };
 
 export function StudyMethodPage({
-  eyebrow = "Study method",
-  title,
-  description,
   detailTitle,
   detailDescription,
   children,
 }: StudyMethodPageProps) {
   return (
-    <div className="space-y-6">
-      <PageHeader eyebrow={eyebrow} title={title} description={description} />
-      {children}
-      <EmptyState eyebrow="Scaffolded" title={detailTitle} description={detailDescription} />
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto space-y-4">
+        {children}
+        <EmptyState eyebrow="Scaffolded" title={detailTitle} description={detailDescription} />
+      </div>
     </div>
   );
 }

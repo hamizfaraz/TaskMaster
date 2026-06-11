@@ -86,7 +86,7 @@ describe("serializeNoteDocumentToMarkdown", () => {
     );
   });
 
-  it("serializes quotes, code, images, and math blocks", () => {
+  it("serializes quotes, code, Mermaid, images, and math blocks", () => {
     const document: NoteDocument = {
       time: 1,
       blocks: [
@@ -101,6 +101,12 @@ describe("serializeNoteDocumentToMarkdown", () => {
           type: "code",
           data: {
             code: 'console.log("hello");',
+          },
+        },
+        {
+          type: "mermaid",
+          data: {
+            code: "graph TD\n  A --> B",
           },
         },
         {
@@ -134,6 +140,11 @@ describe("serializeNoteDocumentToMarkdown", () => {
         'console.log("hello");',
         "```",
         "",
+        "```mermaid",
+        "graph TD",
+        "  A --> B",
+        "```",
+        "",
         "![Chart one](https://example.com/chart.png)",
         "",
         "Chart **one**",
@@ -142,6 +153,32 @@ describe("serializeNoteDocumentToMarkdown", () => {
         "x^2 + y^2 = z^2",
         "$$",
       ].join("\n"),
+    );
+  });
+
+  it("serializes blocks in the current document order", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        {
+          id: "second",
+          type: "paragraph",
+          data: {
+            text: "Second block moved first",
+          },
+        },
+        {
+          id: "first",
+          type: "paragraph",
+          data: {
+            text: "First block moved second",
+          },
+        },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe(
+      "Second block moved first\n\nFirst block moved second",
     );
   });
 });

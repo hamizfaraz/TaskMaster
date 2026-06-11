@@ -1,8 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
-import { createNoteContent } from "@/lib/notes/markdown";
-import { normalizeNoteDocument } from "@/lib/notes/records";
 import type { FlashcardContextNote } from "@/lib/flashcards/types";
 
 const MAX_MARKDOWN_CHARS_PER_NOTE = 18_000;
@@ -13,11 +11,6 @@ function normalizeEmbedding(value: unknown) {
   }
 
   return value.filter((item): item is number => typeof item === "number");
-}
-
-function getMarkdownFromContent(value: unknown) {
-  const document = normalizeNoteDocument(value);
-  return createNoteContent(document).markdown.trim();
 }
 
 export async function getFlashcardContextNotes(params: {
@@ -33,7 +26,7 @@ export async function getFlashcardContextNotes(params: {
     .select({
       id: note.id,
       title: note.title,
-      content: note.content,
+      markdown: note.markdown,
       embedding: note.embedding,
     })
     .from(note)
@@ -42,7 +35,7 @@ export async function getFlashcardContextNotes(params: {
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
-    markdown: getMarkdownFromContent(row.content).slice(0, MAX_MARKDOWN_CHARS_PER_NOTE),
+    markdown: row.markdown.trim().slice(0, MAX_MARKDOWN_CHARS_PER_NOTE),
     embedding: normalizeEmbedding(row.embedding),
   }));
 }

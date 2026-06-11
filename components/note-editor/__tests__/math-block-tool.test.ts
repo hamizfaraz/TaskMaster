@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MathBlockTool } from "@/components/note-editor/math-block-tool";
+import { MathBlockTool } from "@/components/note-editor/blocks/math-block-tool";
 
 describe("MathBlockTool", () => {
   function createTool() {
@@ -61,7 +61,7 @@ describe("MathBlockTool", () => {
     expect(pointerListener).not.toHaveBeenCalled();
   });
 
-  it("inserts a paragraph block after the math block on plain enter", () => {
+  it("keeps plain enter inside the math block", () => {
     const { tool, insert, getBlockIndex } = createTool();
     const rendered = tool.render();
     const mathField = rendered.querySelector("math-field");
@@ -76,8 +76,28 @@ describe("MathBlockTool", () => {
 
     mathField?.dispatchEvent(enterEvent);
 
+    expect(getBlockIndex).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("inserts a paragraph block after the math block on shift enter", () => {
+    const { tool, insert, getBlockIndex } = createTool();
+    const rendered = tool.render();
+    const mathField = rendered.querySelector("math-field");
+
+    expect(mathField).not.toBeNull();
+
+    const enterEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+      shiftKey: true,
+    });
+
+    mathField?.dispatchEvent(enterEvent);
+
     expect(getBlockIndex).toHaveBeenCalledWith("math-block");
-    expect(insert).toHaveBeenCalledWith("paragraph", {}, undefined, 4, true);
+    expect(insert).toHaveBeenCalledWith("paragraph", { text: "<br>" }, undefined, 4, true);
     expect(enterEvent.defaultPrevented).toBe(true);
   });
 });

@@ -22,6 +22,7 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
       title: note.title,
       classId: note.classId,
       content: note.content,
+      markdown: note.markdown,
       sourceType: note.sourceType,
       fileName: note.fileName,
       mimeType: note.mimeType,

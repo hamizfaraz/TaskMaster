@@ -1,9 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
-import type { NoteBlock, NoteDocument } from "@/lib/notes/types";
+import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
 
 const AZURE_DOCUMENT_INTELLIGENCE_API_VERSION = "2024-11-30";
 const EMBEDDING_DIMENSIONS = 768;
+const MAX_GENERATED_TOPIC_NOTES = 4;
+const TARGET_MARKDOWN_CHARS_PER_TOPIC_NOTE = 4500;
 
 const markdownNoteSchema = z.object({
   markdown: z.string().min(1),
@@ -140,14 +142,18 @@ export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: 
           {
             text: [
               "Rewrite the parsed document text into clean Markdown notes.",
+              "Prefer comprehensive class notes over a short summary.",
               "Do not add new facts, examples, interpretations, dates, names, conclusions, or context.",
               "Only reorganize, format, and lightly rewrite information that is present in the source text.",
+              "Keep definitions, examples, steps, equations, code, diagrams, table contents, and important caveats when they appear in the source.",
+              "Avoid collapsing several source details into one vague bullet. Dense notes are better than brief notes.",
               "Preserve uncertainty and omissions. If the source is unclear, keep it unclear.",
               "Convert all parsed math section into LaTeX math blocks. Do not attempt to interpret or rewrite math expressions.",
               "Convert all parsed tables into Markdown tables. Do not attempt to interpret or rewrite table contents.",
               "Convert all parsed lists into Markdown lists. Do not attempt to interpret or rewrite list contents.",
               "Convert all parsed images into Markdown image links with alt text. Do not attempt to interpret or rewrite image contents.",
               "Convert all code sections into Markdown code blocks. Do not attempt to interpret or rewrite code contents. Fix indentation and formatting if needed for valid Markdown, but do not change code syntax.",
+              "If the source contains an explicit flowchart, state diagram, or Mermaid diagram, preserve it as a fenced Mermaid block using ```mermaid. Do not invent diagrams.",
               "Return JSON only with this shape: {\"markdown\":\"...\"}.",
               `File name: ${fileName}`,
               "Parsed text:",
@@ -188,7 +194,11 @@ export async function splitMarkdownIntoTopics(markdown: string) {
           {
             text: [
               "Split these Markdown notes into large topic sections.",
+              `Return between 1 and ${MAX_GENERATED_TOPIC_NOTES} topics unless the document is extremely large.`,
+              "Prefer fewer, denser topics over many small notes.",
+              "Each topic should usually contain multiple related sections, examples, and details rather than a single slide-sized idea.",
               "Each topic must contain only text copied or rewritten from the supplied Markdown notes.",
+              "Preserve as much supplied detail as possible inside each topic. Do not make thin summaries.",
               "Do not introduce new facts. Do not summarize across missing context.",
               "A topic may be the entire note if the note covers one topic.",
               "Return JSON only with this shape: {\"topics\":[{\"title\":\"...\",\"markdown\":\"...\"}]}",
@@ -226,10 +236,95 @@ export async function splitMarkdownIntoTopics(markdown: string) {
     throw new Error("Gemini returned an empty topic split.");
   }
 
-  return topicsSchema.parse(parseJsonPayload(response.text)).topics.map((topic) => ({
+  const topics = topicsSchema.parse(parseJsonPayload(response.text)).topics.map((topic) => ({
     title: topic.title.trim() || "Generated Topic",
     markdown: topic.markdown.trim(),
   }));
+
+  return rebalanceGeneratedTopics(topics);
+}
+
+function formatTopicForMergedMarkdown(topic: { title: string; markdown: string }) {
+  const markdown = topic.markdown.trim();
+  if (/^#{1,6}\s/.test(markdown)) {
+    return markdown;
+  }
+
+  return `## ${topic.title}\n\n${markdown}`;
+}
+
+export function rebalanceGeneratedTopics<T extends { title: string; markdown: string }>(
+  topics: T[],
+) {
+  const normalizedTopics = topics
+    .map((topic) => ({
+      ...topic,
+      title: topic.title.trim() || "Generated Topic",
+      markdown: topic.markdown.trim(),
+    }))
+    .filter((topic) => topic.markdown.length > 0);
+
+  if (normalizedTopics.length <= 1) {
+    return normalizedTopics;
+  }
+
+  const totalMarkdownChars = normalizedTopics.reduce(
+    (sum, topic) => sum + topic.markdown.length,
+    0,
+  );
+  const targetTopicCount = Math.min(
+    normalizedTopics.length,
+    MAX_GENERATED_TOPIC_NOTES,
+    Math.max(1, Math.ceil(totalMarkdownChars / TARGET_MARKDOWN_CHARS_PER_TOPIC_NOTE)),
+  );
+
+  if (normalizedTopics.length <= targetTopicCount) {
+    return normalizedTopics;
+  }
+
+  const targetCharsPerGroup = Math.ceil(totalMarkdownChars / targetTopicCount);
+  const groups: Array<typeof normalizedTopics> = [];
+  let currentGroup: typeof normalizedTopics = [];
+  let currentGroupChars = 0;
+
+  normalizedTopics.forEach((topic, index) => {
+    const remainingTopics = normalizedTopics.length - index;
+    const remainingGroupsAfterCurrent = targetTopicCount - groups.length - 1;
+    const mustKeepRoomForRemainingGroups = remainingTopics <= remainingGroupsAfterCurrent;
+    const shouldStartNextGroup =
+      currentGroup.length > 0 &&
+      groups.length < targetTopicCount - 1 &&
+      currentGroupChars + topic.markdown.length > targetCharsPerGroup &&
+      !mustKeepRoomForRemainingGroups;
+
+    if (shouldStartNextGroup) {
+      groups.push(currentGroup);
+      currentGroup = [];
+      currentGroupChars = 0;
+    }
+
+    currentGroup.push(topic);
+    currentGroupChars += topic.markdown.length;
+  });
+
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
+  }
+
+  return groups.map((group) => {
+    if (group.length === 1) {
+      return group[0];
+    }
+
+    const firstTitle = group[0].title;
+    const lastTitle = group[group.length - 1].title;
+
+    return {
+      ...group[0],
+      title: firstTitle === lastTitle ? firstTitle : `${firstTitle} + ${lastTitle}`,
+      markdown: group.map(formatTopicForMergedMarkdown).join("\n\n"),
+    };
+  });
 }
 
 function l2Normalize(values: number[]) {
@@ -270,66 +365,7 @@ export async function embedGeneratedTopics(topics: Array<{ title: string; markdo
   });
 }
 
-function createBlockId() {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-}
-
-function createParagraphBlock(lines: string[]): NoteBlock {
-  return {
-    id: createBlockId(),
-    type: "paragraph",
-    data: {
-      text: lines.join("<br>"),
-    },
-  };
-}
-
-export function markdownToNoteDocument(markdown: string): NoteDocument {
-  const blocks: NoteBlock[] = [];
-  const paragraphLines: string[] = [];
-
-  function flushParagraph() {
-    if (paragraphLines.length === 0) {
-      return;
-    }
-
-    blocks.push(createParagraphBlock([...paragraphLines]));
-    paragraphLines.length = 0;
-  }
-
-  for (const rawLine of markdown.split(/\r?\n/)) {
-    const line = rawLine.trimEnd();
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-
-    if (headingMatch) {
-      flushParagraph();
-      blocks.push({
-        id: createBlockId(),
-        type: "header",
-        data: {
-          text: headingMatch[2].trim(),
-          level: Math.min(6, headingMatch[1].length) as 1 | 2 | 3 | 4 | 5 | 6,
-        },
-      });
-      continue;
-    }
-
-    if (line.trim().length === 0) {
-      flushParagraph();
-      continue;
-    }
-
-    paragraphLines.push(line);
-  }
-
-  flushParagraph();
-
-  return {
-    time: Date.now(),
-    version: "2.31.5",
-    blocks,
-  };
-}
+export { parseMarkdownToNoteDocument as markdownToNoteDocument };
 
 export async function generateTopicNotesFromFile(params: {
   fileBuffer: Buffer;

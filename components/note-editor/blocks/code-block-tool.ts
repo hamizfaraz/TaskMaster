@@ -31,6 +31,7 @@ export class CodeBlockTool implements BlockTool {
   private textarea: HTMLTextAreaElement | null = null;
   private highlightSurface: HTMLPreElement | null = null;
   private highlightCodeNode: HTMLElement | null = null;
+  private langLabelNode: HTMLSpanElement | null = null;
   private layoutFrameId: number | null = null;
 
   private readonly handleTextareaInput = () => {
@@ -91,6 +92,7 @@ export class CodeBlockTool implements BlockTool {
     this.readOnly = readOnly;
     this.data = {
       code: data.code ?? "",
+      language: data.language,
     };
   }
 
@@ -98,6 +100,18 @@ export class CodeBlockTool implements BlockTool {
     const wrapper = document.createElement("div");
     wrapper.className = "note-code-block";
 
+    // ---- Header row: language label ----
+    const header = document.createElement("div");
+    header.className = "note-code-block__header";
+
+    const langLabel = document.createElement("span");
+    langLabel.className = "note-code-block__lang";
+    this.langLabelNode = langLabel;
+    header.append(langLabel);
+
+    wrapper.append(header);
+
+    // ---- Editor area ----
     const editorSurface = document.createElement("div");
     editorSurface.className = "note-code-block__editor";
 
@@ -141,7 +155,7 @@ export class CodeBlockTool implements BlockTool {
   }
 
   public validate(blockData: NoteCodeBlockData) {
-    return blockData.code.trim().length > 0;
+    return typeof blockData.code === "string";
   }
 
   public destroy() {
@@ -157,6 +171,7 @@ export class CodeBlockTool implements BlockTool {
     this.textarea = null;
     this.highlightSurface = null;
     this.highlightCodeNode = null;
+    this.langLabelNode = null;
   }
 
   private scheduleLayoutSync() {
@@ -173,9 +188,6 @@ export class CodeBlockTool implements BlockTool {
       window.cancelAnimationFrame(this.layoutFrameId);
     }
 
-    // Re-measure after the block is attached and painted. The immediate call in
-    // render() can happen before Editor.js finalizes layout, which makes the
-    // initial code block appear too short until the user edits it.
     this.layoutFrameId = window.requestAnimationFrame(() => {
       runLayoutSync();
       this.layoutFrameId = window.requestAnimationFrame(() => {
@@ -188,6 +200,7 @@ export class CodeBlockTool implements BlockTool {
   private syncData() {
     this.data = {
       code: this.textarea?.value ?? this.data.code,
+      language: this.data.language,
     };
   }
 
@@ -200,12 +213,22 @@ export class CodeBlockTool implements BlockTool {
       this.highlightCodeNode.innerHTML = this.readOnly
         ? "<span class=\"note-code-block__placeholder\">No code content.</span>"
         : "";
+      this.updateLangLabel(null);
       return;
     }
 
-    this.highlightCodeNode.innerHTML = `${highlightCode(this.data.code)}${
+    const result = highlightCode(this.data.code, this.data.language);
+    this.highlightCodeNode.innerHTML = `${result.html}${
       this.data.code.endsWith("\n") ? "\n " : ""
     }`;
+    this.updateLangLabel(result.language);
+  }
+
+  private updateLangLabel(detected: string | null) {
+    if (!this.langLabelNode) return;
+    const lang = this.data.language ?? detected;
+    this.langLabelNode.textContent = lang ?? "";
+    this.langLabelNode.style.display = lang ? "" : "none";
   }
 
   private syncTextareaHeight() {

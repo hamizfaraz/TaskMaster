@@ -10,7 +10,7 @@ import {
   parseTestGradingItem,
   parseTestRun,
 } from "@/lib/db/schema";
-import type { ParseStatus, ParseTestPayload, ParseTestViewModel } from "../contracts";
+import type { ParseStatus, ParseTestPayload, ParseTestReviewUpdate, ParseTestViewModel } from "../contracts";
 import { getParseTestModel } from "../feature";
 import { isHighSignalWarning, normalisePercent, parseIsoDate } from "../normalize";
 
@@ -344,6 +344,141 @@ export async function getParseTestViewModelForRun(
       displayOrder: event.displayOrder,
     })),
   };
+}
+
+export async function updateParseTestReviewedValues(
+  userId: string,
+  payload: ParseTestReviewUpdate,
+) {
+  const run = await getRunById(userId, payload.runId);
+
+  if (!run) {
+    return null;
+  }
+
+  const courses = await db
+    .select()
+    .from(parseTestCourse)
+    .where(eq(parseTestCourse.runId, run.id))
+    .limit(1);
+  const course = courses[0];
+
+  if (!course) {
+    return null;
+  }
+
+  const now = new Date();
+
+  await db
+    .update(parseTestCourse)
+    .set({
+      title: payload.course.title,
+      courseCode: payload.course.courseCode,
+      courseSection: payload.course.courseSection,
+      term: payload.course.term,
+      instructorName: payload.course.instructorName,
+      meetingDays: payload.course.meetingDays,
+      meetingTime: payload.course.meetingTime,
+      meetingLocation: payload.course.meetingLocation,
+      requiredMaterials: payload.course.requiredMaterials,
+      homeworkTools: payload.course.homeworkTools,
+      catalogDescription: payload.course.catalogDescription,
+      studentSummary: payload.course.studentSummary,
+      descriptionSource: payload.course.descriptionSource,
+      updatedAt: now,
+    })
+    .where(eq(parseTestCourse.id, course.id));
+
+  await Promise.all([
+    db.delete(parseTestConcept).where(eq(parseTestConcept.courseId, course.id)),
+    db.delete(parseTestContact).where(eq(parseTestContact.courseId, course.id)),
+    db.delete(parseTestGradingItem).where(eq(parseTestGradingItem.courseId, course.id)),
+    db.delete(parseTestAssignment).where(eq(parseTestAssignment.courseId, course.id)),
+    db.delete(parseTestEvent).where(eq(parseTestEvent.courseId, course.id)),
+  ]);
+
+  if (payload.concepts.length > 0) {
+    await db.insert(parseTestConcept).values(
+      payload.concepts.map((concept, index) => ({
+        id: randomUUID(),
+        courseId: course.id,
+        label: concept.label,
+        displayOrder: index,
+      })),
+    );
+  }
+
+  if (payload.contacts.length > 0) {
+    await db.insert(parseTestContact).values(
+      payload.contacts.map((contact, index) => ({
+        id: randomUUID(),
+        courseId: course.id,
+        role: contact.role,
+        name: contact.name,
+        email: contact.email,
+        officeHours: contact.officeHours,
+        location: contact.location,
+        sourceSnippet: contact.sourceSnippet,
+        displayOrder: index,
+      })),
+    );
+  }
+
+  if (payload.gradingItems.length > 0) {
+    await db.insert(parseTestGradingItem).values(
+      payload.gradingItems.map((item, index) => ({
+        id: randomUUID(),
+        courseId: course.id,
+        label: item.label,
+        weightPercent: item.weightPercent,
+        sourceSnippet: item.sourceSnippet,
+        displayOrder: index,
+      })),
+    );
+  }
+
+  if (payload.assignments.length > 0) {
+    await db.insert(parseTestAssignment).values(
+      payload.assignments.map((assignment, index) => ({
+        id: randomUUID(),
+        courseId: course.id,
+        title: assignment.title,
+        category: assignment.category,
+        dateText: assignment.dateText,
+        dueAt: parseIsoDate(assignment.dueAt),
+        timeText: assignment.timeText,
+        weightPercent: assignment.weightPercent,
+        sourceSnippet: assignment.sourceSnippet,
+        displayOrder: index,
+      })),
+    );
+  }
+
+  if (payload.events.length > 0) {
+    await db.insert(parseTestEvent).values(
+      payload.events.map((event, index) => ({
+        id: randomUUID(),
+        courseId: course.id,
+        title: event.title,
+        category: event.category,
+        dateText: event.dateText,
+        dueAt: parseIsoDate(event.dueAt),
+        timeText: event.timeText,
+        location: event.location,
+        sourceSnippet: event.sourceSnippet,
+        displayOrder: index,
+      })),
+    );
+  }
+
+  await db
+    .update(parseTestRun)
+    .set({
+      updatedAt: now,
+    })
+    .where(eq(parseTestRun.id, run.id));
+
+  return getParseTestViewModelForRun(userId, run.id);
 }
 
 export async function deleteParseTestRunRecord(params: { userId: string; runId: string }) {

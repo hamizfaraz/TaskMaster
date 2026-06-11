@@ -1,5 +1,13 @@
 import { createNoteContent } from "@/lib/notes/markdown";
-import { emptyNoteDocument, NoteDocumentSchema, type NoteContent, type NoteDocument } from "@/lib/notes/types";
+import { renderInlineMarkdownText } from "@/lib/notes/parse-markdown";
+import {
+  emptyNoteDocument,
+  NoteDocumentSchema,
+  type NoteBlock,
+  type NoteContent,
+  type NoteDocument,
+  type NoteListItem,
+} from "@/lib/notes/types";
 
 export type NoteSourceType = "manual" | "upload";
 
@@ -8,6 +16,7 @@ export type NoteRecord = {
   title: string;
   classId: string | null;
   content: unknown;
+  markdown?: string | null;
   sourceType: NoteSourceType;
   fileName: string | null;
   mimeType: string | null;
@@ -55,7 +64,10 @@ function normalizeDate(value: string | Date) {
   return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
-export function normalizeNoteDocument(value: unknown): NoteDocument {
+export function normalizeNoteDocument(
+  value: unknown,
+  options?: { normalizeInlineMarkdown?: boolean },
+): NoteDocument {
   if (!value) {
     return createEmptyDocument();
   }
@@ -65,7 +77,78 @@ export function normalizeNoteDocument(value: unknown): NoteDocument {
     return createEmptyDocument();
   }
 
-  return parsed.data;
+  return options?.normalizeInlineMarkdown
+    ? normalizeInlineMarkdownInDocument(parsed.data)
+    : parsed.data;
+}
+
+function looksLikePlainInlineMarkdown(value: string) {
+  return (
+    !/<\/?[a-z][\s\S]*>/i.test(value) &&
+    !/&[a-z#0-9]+;/i.test(value) &&
+    /(`[^`\r\n]+`|\*\*[^*\r\n]+\*\*|__[^_\r\n]+__|\*[^*\r\n]+\*|_[^_\r\n]+_|~~[^~\r\n]+~~|\[[^\]\r\n]+\]\([^)]+\))/.test(
+      value,
+    )
+  );
+}
+
+function normalizeInlineMarkdownText(value: string) {
+  return looksLikePlainInlineMarkdown(value) ? renderInlineMarkdownText(value) : value;
+}
+
+function normalizeListItems(items: NoteListItem[]): NoteListItem[] {
+  return items.map((item) => ({
+    ...item,
+    content: normalizeInlineMarkdownText(item.content),
+    items: normalizeListItems(item.items),
+  }));
+}
+
+function normalizeInlineMarkdownInBlock(block: NoteBlock): NoteBlock {
+  switch (block.type) {
+    case "paragraph":
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          text: normalizeInlineMarkdownText(block.data.text),
+        },
+      };
+    case "header":
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          text: normalizeInlineMarkdownText(block.data.text),
+        },
+      };
+    case "quote":
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          text: normalizeInlineMarkdownText(block.data.text),
+          caption: normalizeInlineMarkdownText(block.data.caption),
+        },
+      };
+    case "list":
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          items: normalizeListItems(block.data.items),
+        },
+      };
+    default:
+      return block;
+  }
+}
+
+function normalizeInlineMarkdownInDocument(document: NoteDocument): NoteDocument {
+  return {
+    ...document,
+    blocks: document.blocks.map(normalizeInlineMarkdownInBlock),
+  };
 }
 
 function normalizeEmbedding(value: unknown) {
@@ -119,8 +202,13 @@ function normalizeNoteGeneration(value: unknown, noteEmbedding: number[] | null)
 }
 
 export function noteRecordToWorkspaceNote(record: NoteRecord): WorkspaceNote {
-  const document = normalizeNoteDocument(record.content);
+  const shouldNormalizeInlineMarkdown = record.sourceType === "upload";
+  const document = normalizeNoteDocument(record.content, {
+    normalizeInlineMarkdown: shouldNormalizeInlineMarkdown,
+  });
   const embedding = normalizeEmbedding(record.embedding);
+  const content = createNoteContent(document);
+  const markdown = typeof record.markdown === "string" ? record.markdown : content.markdown;
 
   return {
     id: record.id,
@@ -133,7 +221,10 @@ export function noteRecordToWorkspaceNote(record: NoteRecord): WorkspaceNote {
     embedding,
     createdAt: normalizeDate(record.createdAt),
     updatedAt: normalizeDate(record.updatedAt),
-    content: createNoteContent(document),
+    content: {
+      markdown,
+      document,
+    },
     generation: normalizeNoteGeneration(record.content, embedding),
   };
 }

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import "mathlive/fonts.css";
 import "mathlive/static.css";
-import { THEME_STORAGE_KEY } from "@/lib/theme";
+import { ThemeInitializer } from "@/components/ui/theme-initializer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,22 +21,6 @@ export const metadata: Metadata = {
   description: "TaskMaster academic workspace",
 };
 
-const themeInitScript = `
-(() => {
-  try {
-    var saved = window.localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
-    var theme = saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
-    var resolved = theme === "system"
-      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-      : theme;
-    var root = document.documentElement;
-    root.classList.toggle("dark", resolved === "dark");
-    root.classList.toggle("light", resolved === "light");
-    root.dataset.theme = theme;
-  } catch (_) {}
-})();
-`;
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -49,12 +33,20 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <Script
-          id="taskmaster-theme-init"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: themeInitScript }}
-        />
+        <ThemeInitializer />
         {children}
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "var(--surface-elevated)",
+              color: "var(--foreground)",
+              border: "1px solid var(--border)",
+              borderRadius: "0.5rem",
+              fontSize: "0.875rem",
+            },
+          }}
+        />
       </body>
     </html>
   );

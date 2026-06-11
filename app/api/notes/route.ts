@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
+import { normalizeNoteWriteContent } from "@/lib/notes/persistence";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,7 @@ export async function GET(req: Request) {
       title: note.title,
       classId: note.classId,
       content: note.content,
+      markdown: note.markdown,
       sourceType: note.sourceType,
       fileName: note.fileName,
       mimeType: note.mimeType,
@@ -80,8 +82,15 @@ export async function POST(req: Request) {
     }
   }
 
-  // content is the Editor.js output JSON; we store it as-is.
-  const content = body.content ?? null;
+  let content: ReturnType<typeof normalizeNoteWriteContent>;
+  try {
+    content = normalizeNoteWriteContent(body.content);
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid note content" },
+      { status: 400 },
+    );
+  }
 
   const [created] = await db
     .insert(note)
@@ -89,7 +98,8 @@ export async function POST(req: Request) {
       userId: session.user.id,
       title,
       classId,
-      content,
+      content: content.document,
+      markdown: content.markdown,
       sourceType: "manual",
     })
     .returning();

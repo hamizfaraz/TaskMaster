@@ -16,7 +16,7 @@ export function CodeBlockView({ data }: CodeBlockViewProps) {
           dangerouslySetInnerHTML={{
             __html:
               data.code.trim().length > 0
-                ? highlightCode(data.code)
+                ? highlightCode(data.code).html
                 : "<span class=\"note-code-block__placeholder\">No code yet.</span>",
           }}
         />

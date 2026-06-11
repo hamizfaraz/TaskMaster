@@ -1,4 +1,3 @@
-import { PageHeader } from "@/components/ui/page-header";
 import { requireServerSession } from "@/lib/auth-session";
 import { listUserClassEvents } from "@/lib/classes/queries";
 import { CalendarClient, type CalendarEvent } from "./calendar-client";
@@ -13,13 +12,7 @@ export default async function CalendarPage() {
   }));
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Calendar"
-        title="Calendar"
-        description="A month view for parsed syllabus dates, selected-day focus, and upcoming class work."
-      />
-
+    <div className="h-full overflow-hidden">
       <CalendarClient events={calendarEvents} initialDate={initialDate} />
     </div>
   );

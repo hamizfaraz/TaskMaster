@@ -5,7 +5,7 @@ import type { FlashcardContextNote, FlashcardItem } from "@/lib/flashcards/types
 const generatedCardSchema = z.object({
   front: z.string().min(1),
   back: z.string().min(1),
-  sourceNoteTitles: z.array(z.string().min(1)).min(1),
+  sourceNoteTitles: z.array(z.string().min(1)).default([]),
 });
 
 const generatedDeckSchema = z.object({
@@ -123,7 +123,14 @@ export async function generateFlashcardDeck(params: {
     throw new Error("Gemini returned an empty flashcard generation response.");
   }
 
-  const deck = generatedDeckSchema.parse(parseJsonPayload(response.text));
+  let deck: z.infer<typeof generatedDeckSchema>;
+  try {
+    deck = generatedDeckSchema.parse(parseJsonPayload(response.text));
+  } catch (parseError) {
+    console.error("[flashcards/gemini] Deck parse failed:", parseError);
+    throw new Error("Flashcard generation failed");
+  }
+
   return {
     title: deck.title.trim() || "Generated flashcards",
     cards: deck.cards.map((card) => ({

@@ -1,0 +1,1 @@
+ALTER TABLE "note" ADD COLUMN "markdown" text DEFAULT '' NOT NULL;
