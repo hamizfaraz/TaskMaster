@@ -26,6 +26,8 @@ import {
   X,
 } from "lucide-react";
 import { NoteSurface } from "@/components/note-editor/note-surface";
+import { AsciiBackground } from "@/components/shell/ascii-background";
+import { useAsciiBackgroundEnabled } from "@/components/shell/background-preference";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 import {
@@ -213,6 +215,7 @@ export function NotesWorkspace({
   resetHref,
 }: NotesWorkspaceProps) {
   const router = useRouter();
+  const asciiBackgroundEnabled = useAsciiBackgroundEnabled();
   const [notes, setNotes] = useState(() => sortWorkspaceNotes(initialNotes));
   const initialSelectedNote = initialClassId
     ? (initialNotes.find((note) => note.classId === initialClassId) ??
@@ -1325,9 +1328,12 @@ export function NotesWorkspace({
         {/* ---------------------------------------------------------------- */}
         {/* Editor area                                                        */}
         {/* ---------------------------------------------------------------- */}
-        <section className="h-full min-h-0 bg-background">
+        <section className="notes-app-background relative h-full min-h-0 overflow-hidden bg-background">
+          {asciiBackgroundEnabled ? (
+            <AsciiBackground className="notes-app-background__ascii" />
+          ) : null}
           {selectedNote ? (
-            <div className="flex h-full min-h-0 flex-col">
+            <div className="relative z-10 flex h-full min-h-0 flex-col">
               <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-4">
                 <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
                   <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -1429,7 +1435,7 @@ export function NotesWorkspace({
               </div>
             </div>
           ) : (
-            <div className="flex h-full min-h-0 items-center justify-center p-6">
+            <div className="relative z-10 flex h-full min-h-0 items-center justify-center p-6">
               <div className="flex gap-2">
                 <Button
                   type="button"

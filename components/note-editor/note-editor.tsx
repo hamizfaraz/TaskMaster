@@ -9,18 +9,37 @@ import {
   type ReactNode,
 } from "react";
 import type EditorJS from "@editorjs/editorjs";
-import type { BlockToolConstructable } from "@editorjs/editorjs";
 import type {
   NoteBlock,
-  NoteBlockType,
   NoteContent,
   NoteDocument,
   NoteImageFileData,
 } from "@/lib/notes/types";
 import { emptyNoteDocument, NoteDocumentSchema } from "@/lib/notes/types";
 import { createNoteContent } from "@/lib/notes/markdown";
-import { CodeBlockTool } from "@/components/note-editor/code-block-tool";
-import { MathBlockTool } from "@/components/note-editor/math-block-tool";
+import {
+  convertBlock,
+  createEmptyBlockForTarget,
+  getBlockText,
+  getSlashCommandMatches,
+  stripHtml,
+  type BlockConversionTarget,
+  type SlashCommand,
+} from "@/components/note-editor/block-transforms";
+import { areDocumentsEqual } from "@/components/note-editor/document-utils";
+import {
+  BlockContextMenu,
+  SlashCommandMenu,
+  type BlockContextMenuState,
+  type SlashCommandMenuState,
+} from "@/components/note-editor/editor-menus";
+import { uploadImageToDataUrl } from "@/components/note-editor/image-upload";
+import {
+  readBlocksFromClipboard,
+  writeBlocksToClipboard,
+} from "@/components/note-editor/block-clipboard";
+import { loadEditorJsClassAndTools } from "@/components/note-editor/editorjs-tools";
+import { isPointInHorizontalEdgeGutter } from "@/components/note-editor/selection-geometry";
 
 export type NoteEditorProps = {
   initialDocument: NoteDocument;
@@ -30,337 +49,6 @@ export type NoteEditorProps = {
   readOnly?: boolean;
   selectionPrelude?: ReactNode;
 };
-
-const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
-const NOTE_BLOCKS_CLIPBOARD_TYPE = "application/x-taskmaster-note-blocks";
-
-type BlockContextMenuState = {
-  x: number;
-  y: number;
-  blockIndex: number;
-  blockType: NoteBlockType;
-};
-
-type SlashCommandMenuState = {
-  x: number;
-  y: number;
-  blockIndex: number;
-  query: string;
-  activeIndex: number;
-};
-
-type BlockConversionTarget =
-  | { type: "paragraph" }
-  | { type: "header"; level: 1 | 2 | 3 | 4 }
-  | { type: "list"; style: "ordered" | "unordered" | "checklist" }
-  | { type: "quote" }
-  | { type: "code" }
-  | { type: "math" };
-
-type SlashCommand = {
-  id: string;
-  label: string;
-  hint: string;
-  keywords: string[];
-  target: BlockConversionTarget;
-};
-
-const SLASH_COMMANDS: SlashCommand[] = [
-  {
-    id: "text",
-    label: "Text",
-    hint: "Plain text block",
-    keywords: ["paragraph", "plain"],
-    target: { type: "paragraph" },
-  },
-  {
-    id: "h1",
-    label: "Heading 1",
-    hint: "Large section heading",
-    keywords: ["heading", "title", "h1"],
-    target: { type: "header", level: 1 },
-  },
-  {
-    id: "h2",
-    label: "Heading 2",
-    hint: "Medium section heading",
-    keywords: ["heading", "subtitle", "h2"],
-    target: { type: "header", level: 2 },
-  },
-  {
-    id: "h3",
-    label: "Heading 3",
-    hint: "Small section heading",
-    keywords: ["heading", "h3"],
-    target: { type: "header", level: 3 },
-  },
-  {
-    id: "bullet",
-    label: "Bulleted list",
-    hint: "Simple unordered list",
-    keywords: ["list", "ul", "bullet"],
-    target: { type: "list", style: "unordered" },
-  },
-  {
-    id: "number",
-    label: "Numbered list",
-    hint: "Ordered list",
-    keywords: ["list", "ol", "number"],
-    target: { type: "list", style: "ordered" },
-  },
-  {
-    id: "todo",
-    label: "Checklist",
-    hint: "Track tasks",
-    keywords: ["todo", "task", "check"],
-    target: { type: "list", style: "checklist" },
-  },
-  {
-    id: "quote",
-    label: "Quote",
-    hint: "Callout text",
-    keywords: ["blockquote", "callout"],
-    target: { type: "quote" },
-  },
-  {
-    id: "code",
-    label: "Code",
-    hint: "Code block",
-    keywords: ["pre", "snippet"],
-    target: { type: "code" },
-  },
-  {
-    id: "math",
-    label: "Math",
-    hint: "Equation block",
-    keywords: ["equation", "latex"],
-    target: { type: "math" },
-  },
-];
-
-function areDocumentsEqual(left: NoteDocument, right: NoteDocument) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function stripHtml(value: string) {
-  return value
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|blockquote|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function getBlockText(block: NoteBlock, options?: { plain?: boolean }) {
-  const normalize = options?.plain ? stripHtml : (value: string) => value;
-
-  switch (block.type) {
-    case "paragraph":
-    case "header":
-      return normalize(block.data.text);
-    case "quote":
-      return normalize(block.data.text);
-    case "list":
-      return normalize(block.data.items.map((item) => item.content).join("\n"));
-    case "code":
-      return block.data.code;
-    case "math":
-      return block.data.latex;
-    case "image":
-      return normalize(block.data.caption);
-    default:
-      return "";
-  }
-}
-
-function convertBlock(
-  block: NoteBlock,
-  target: BlockConversionTarget,
-): NoteBlock {
-  const richText = getBlockText(block);
-  const plainText = getBlockText(block, { plain: true });
-
-  switch (target.type) {
-    case "paragraph":
-      return {
-        type: "paragraph",
-        data: {
-          text: richText,
-        },
-      };
-    case "header":
-      return {
-        type: "header",
-        data: {
-          text: richText,
-          level: target.level,
-        },
-      };
-    case "list":
-      return {
-        type: "list",
-        data: {
-          style: target.style,
-          items: plainText
-            .split("\n")
-            .map((item) => item.trim())
-            .filter(Boolean)
-            .map((item) => ({
-              content: item,
-              meta: target.style === "checklist" ? { checked: false } : {},
-              items: [],
-            })),
-        },
-      };
-    case "quote":
-      return {
-        type: "quote",
-        data: {
-          text: richText,
-          caption: "",
-          alignment: "left",
-        },
-      };
-    case "code":
-      return {
-        type: "code",
-        data: {
-          code: plainText,
-        },
-      };
-    case "math":
-      return {
-        type: "math",
-        data: {
-          latex: plainText,
-        },
-      };
-    default:
-      return block;
-  }
-}
-
-function createEmptyBlockForTarget(target: BlockConversionTarget): NoteBlock {
-  switch (target.type) {
-    case "paragraph":
-      return {
-        type: "paragraph",
-        data: {
-          text: "",
-        },
-      };
-    case "header":
-      return {
-        type: "header",
-        data: {
-          text: "",
-          level: target.level,
-        },
-      };
-    case "list":
-      return {
-        type: "list",
-        data: {
-          style: target.style,
-          items: [
-            {
-              content: "",
-              meta: target.style === "checklist" ? { checked: false } : {},
-              items: [],
-            },
-          ],
-        },
-      };
-    case "quote":
-      return {
-        type: "quote",
-        data: {
-          text: "",
-          caption: "",
-          alignment: "left",
-        },
-      };
-    case "code":
-      return {
-        type: "code",
-        data: {
-          code: "",
-        },
-      };
-    case "math":
-      return {
-        type: "math",
-        data: {
-          latex: "",
-        },
-      };
-    default:
-      return {
-        type: "paragraph",
-        data: {
-          text: "",
-        },
-      };
-  }
-}
-
-function getSlashCommandMatches(query: string) {
-  const normalizedQuery = query.trim().toLowerCase();
-
-  if (!normalizedQuery) {
-    return SLASH_COMMANDS;
-  }
-
-  return SLASH_COMMANDS.filter((command) =>
-    [command.label, command.id, ...command.keywords].some((value) =>
-      value.toLowerCase().includes(normalizedQuery),
-    ),
-  );
-}
-
-async function uploadImageToDataUrl(file: File): Promise<NoteImageFileData> {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("Only image uploads are supported.");
-  }
-
-  if (file.size > MAX_INLINE_IMAGE_BYTES) {
-    throw new Error(
-      "Images larger than 2 MB are not supported by the temporary inline uploader.",
-    );
-  }
-
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("Could not convert image to a data URL."));
-    };
-
-    reader.onerror = () => {
-      reject(reader.error ?? new Error("Could not read the image file."));
-    };
-
-    reader.readAsDataURL(file);
-  });
-
-  return {
-    url: dataUrl,
-    name: file.name,
-    size: file.size,
-    type: file.type,
-  };
-}
 
 export function NoteEditor({
   initialDocument,
@@ -909,6 +597,73 @@ export function NoteEditor({
         ),
       );
 
+const isNativeTextSelectionTarget = (target: EventTarget | null) => {
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+
+  return Boolean(
+    element?.closest(
+      [
+        '[contenteditable="true"]',
+        ".ce-paragraph",
+        ".ce-header",
+        ".cdx-quote__text",
+        ".cdx-quote__caption",
+        ".cdx-list",
+        ".cdx-list__item",
+        ".cdx-list__item-content",
+      ].join(", "),
+    ),
+  );
+};
+
+    const getEventBlock = (target: EventTarget | null) =>
+      target instanceof Element
+        ? target.closest<HTMLElement>(".ce-block")
+        : null;
+
+    const isInsideSelectionSurface = (
+      target: EventTarget | null,
+      clientX: number,
+      clientY: number,
+    ) => {
+      if (target instanceof Node && selectionScope.contains(target)) {
+        return true;
+      }
+
+      const rect = holder.getBoundingClientRect();
+      return (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      );
+    };
+
+    const isEditorEdgeSelectionPoint = (
+      target: EventTarget | null,
+      clientX: number,
+      clientY: number,
+    ) => {
+      const rect = holder.getBoundingClientRect();
+      const isEditorDescendant =
+        target instanceof Node && selectionScope.contains(target);
+
+      // Some imported notes visually overflow the holder's measured height.
+      // For real editor descendants, gutter selection should depend on X only.
+      return isPointInHorizontalEdgeGutter(
+        isEditorDescendant
+          ? { ...rect, top: clientY - 1, bottom: clientY + 1 }
+          : rect,
+        clientX,
+        clientY,
+      );
+    };
+
     const isContextMenuControlTarget = (target: EventTarget | null) =>
       target instanceof Element &&
       Boolean(
@@ -1289,19 +1044,34 @@ export function NoteEditor({
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      if (!isInsideSelectionSurface(event.target, event.clientX, event.clientY)) {
+        return;
+      }
+
+      const isControlTarget = isEditorControlTarget(event.target);
+      const isEdgeSelectionPoint = isEditorEdgeSelectionPoint(
+        event.target,
+        event.clientX,
+        event.clientY,
+      );
       if (
         pointerMode ||
         event.button !== 0 ||
-        isEditorControlTarget(event.target)
+        (isControlTarget && !isEdgeSelectionPoint)
       ) {
         return;
       }
 
-      const block =
-        event.target instanceof Element
-          ? event.target.closest<HTMLElement>(".ce-block")
-          : null;
+      const block = isEdgeSelectionPoint ? null : getEventBlock(event.target);
       const isBlockSelected = block && selectedBlocks.has(block);
+      if (isEdgeSelectionPoint) {
+        event.preventDefault();
+      }
+
+      if (block && !isBlockSelected && isNativeTextSelectionTarget(event.target)) {
+        clearSelection();
+        return;
+      }
 
       if (block && !isBlockSelected) {
         // Block is not selected — clear any prior selection. We still set up
@@ -1394,19 +1164,34 @@ export function NoteEditor({
     };
 
     const handleMouseDown = (event: MouseEvent) => {
+      if (!isInsideSelectionSurface(event.target, event.clientX, event.clientY)) {
+        return;
+      }
+
+      const isControlTarget = isEditorControlTarget(event.target);
+      const isEdgeSelectionPoint = isEditorEdgeSelectionPoint(
+        event.target,
+        event.clientX,
+        event.clientY,
+      );
       if (
         pointerMode ||
         event.button !== 0 ||
-        isEditorControlTarget(event.target)
+        (isControlTarget && !isEdgeSelectionPoint)
       ) {
         return;
       }
 
-      const block =
-        event.target instanceof Element
-          ? event.target.closest<HTMLElement>(".ce-block")
-          : null;
+      const block = isEdgeSelectionPoint ? null : getEventBlock(event.target);
       const isBlockSelected = block && selectedBlocks.has(block);
+      if (isEdgeSelectionPoint) {
+        event.preventDefault();
+      }
+
+      if (block && !isBlockSelected && isNativeTextSelectionTarget(event.target)) {
+        clearSelection();
+        return;
+      }
 
       if (block && !isBlockSelected) {
         clearSelection();
@@ -1478,18 +1263,14 @@ export function NoteEditor({
       })();
     };
 
-    selectionScope.addEventListener("pointerdown", handlePointerDown, true);
-    selectionScope.addEventListener("mousedown", handleMouseDown, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("mousedown", handleMouseDown, true);
     selectionScope.addEventListener("contextmenu", handleContextMenu, true);
     window.addEventListener("blur", resetInteractionState);
 
     return () => {
-      selectionScope.removeEventListener(
-        "pointerdown",
-        handlePointerDown,
-        true,
-      );
-      selectionScope.removeEventListener("mousedown", handleMouseDown, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("mousedown", handleMouseDown, true);
       selectionScope.removeEventListener(
         "contextmenu",
         handleContextMenu,
@@ -1510,32 +1291,13 @@ export function NoteEditor({
         return;
       }
 
-      const [
-        { default: EditorJSClass },
-        { default: Paragraph },
-        { default: Header },
-        { default: EditorjsList },
-        { default: Quote },
-        { default: ImageTool },
-      ] = await Promise.all([
-        import("@editorjs/editorjs"),
-        import("@editorjs/paragraph"),
-        import("@editorjs/header"),
-        import("@editorjs/list"),
-        import("@editorjs/quote"),
-        import("@editorjs/image"),
-        import("mathlive"),
-      ]);
+      const { EditorJSClass, tools } = await loadEditorJsClassAndTools(
+        resolveImageUpload,
+      );
 
       if (disposed || !holderRef.current) {
         return;
       }
-
-      const paragraphTool = Paragraph as unknown as BlockToolConstructable;
-      const headerTool = Header as unknown as BlockToolConstructable;
-      const listTool = EditorjsList as unknown as BlockToolConstructable;
-      const quoteTool = Quote as unknown as BlockToolConstructable;
-      const imageTool = ImageTool as unknown as BlockToolConstructable;
 
       const editor = new EditorJSClass({
         holder: holderRef.current,
@@ -1546,60 +1308,7 @@ export function NoteEditor({
           renderedDocumentRef.current.blocks.length > 0
             ? renderedDocumentRef.current
             : { ...emptyNoteDocument },
-        tools: {
-          paragraph: {
-            class: paragraphTool,
-            inlineToolbar: true,
-            config: {
-              placeholder: "Type '/' for commands",
-            },
-          },
-          header: {
-            class: headerTool,
-            inlineToolbar: true,
-            config: {
-              levels: [1, 2, 3, 4],
-              defaultLevel: 2,
-            },
-          },
-          list: {
-            class: listTool,
-            inlineToolbar: true,
-            config: {
-              defaultStyle: "unordered",
-            },
-          },
-          quote: {
-            class: quoteTool,
-            inlineToolbar: true,
-          },
-          code: {
-            class: CodeBlockTool as unknown as BlockToolConstructable,
-          },
-          image: {
-            class: imageTool,
-            config: {
-              features: {
-                border: false,
-                background: false,
-                caption: "optional",
-                stretch: true,
-              },
-              uploader: {
-                uploadByFile: async (file: Blob) => {
-                  if (!(file instanceof File)) {
-                    throw new Error("Only file uploads are supported.");
-                  }
-
-                  return resolveImageUpload(file);
-                },
-              },
-            },
-          },
-          math: {
-            class: MathBlockTool as unknown as BlockToolConstructable,
-          },
-        },
+        tools,
         async onChange() {
           if (changeTimeoutRef.current) {
             window.clearTimeout(changeTimeoutRef.current);
@@ -1729,53 +1438,6 @@ export function NoteEditor({
       return blockIndex >= 0 ? blockIndex : renderedDocumentRef.current.blocks.length - 1;
     };
 
-    const writeBlocksToClipboard = (
-      clipboardData: DataTransfer,
-      blocks: NoteBlock[],
-    ) => {
-      const document = {
-        time: Date.now(),
-        blocks,
-      };
-      const payload = JSON.stringify({
-        type: "taskmaster.noteBlocks",
-        version: 1,
-        blocks: cloneBlocksForInsert(blocks),
-      });
-
-      clipboardData.setData(NOTE_BLOCKS_CLIPBOARD_TYPE, payload);
-      clipboardData.setData("text/plain", createNoteContent(document).markdown);
-    };
-
-    const readBlocksFromClipboard = (clipboardData: DataTransfer) => {
-      const raw =
-        clipboardData.getData(NOTE_BLOCKS_CLIPBOARD_TYPE) ||
-        clipboardData.getData("text/plain");
-      if (!raw) {
-        return [];
-      }
-
-      try {
-        const payload = JSON.parse(raw) as {
-          type?: string;
-          blocks?: unknown;
-        };
-        if (
-          payload.type !== "taskmaster.noteBlocks" ||
-          !Array.isArray(payload.blocks)
-        ) {
-          return [];
-        }
-
-        return NoteDocumentSchema.parse({
-          time: Date.now(),
-          blocks: payload.blocks,
-        }).blocks;
-      } catch {
-        return [];
-      }
-    };
-
     const getSelectedBlocks = () => {
       const indexes = selectedBlockIndexesRef.current;
       if (indexes.length === 0) {
@@ -1796,7 +1458,7 @@ export function NoteEditor({
       }
 
       event.preventDefault();
-      writeBlocksToClipboard(event.clipboardData, blocks);
+      writeBlocksToClipboard(event.clipboardData, blocks, cloneBlocksForInsert);
     };
 
     const handleCut = (event: ClipboardEvent) => {
@@ -1811,7 +1473,7 @@ export function NoteEditor({
       }
 
       event.preventDefault();
-      writeBlocksToClipboard(event.clipboardData, blocks);
+      writeBlocksToClipboard(event.clipboardData, blocks, cloneBlocksForInsert);
       deleteBlocksAtIndexes(selectedIndexes);
     };
 
@@ -2098,153 +1760,25 @@ export function NoteEditor({
   return (
     <section
       ref={selectionScopeRef}
-      className="note-editor relative flex flex-1 flex-col"
+      className="note-editor relative flex min-h-full shrink-0 flex-col"
     >
       {selectionPrelude}
       <div
         ref={holderRef}
-        className="note-editor__canvas flex-1 w-full px-4 pb-28 pt-6 md:px-10 md:pb-36 md:pt-8"
+        className="note-editor__canvas min-h-full w-full shrink-0 px-4 pb-28 pt-6 md:px-10 md:pb-36 md:pt-8"
       />
       {slashCommandMenu ? (
-        <div
-          data-note-slash-command-menu
-          className="note-editor__slash-menu"
-          role="menu"
-          style={{
-            left: `clamp(4px, ${slashCommandMenu.x}px, calc(100vw - 18.5rem))`,
-            top: `clamp(4px, ${slashCommandMenu.y}px, calc(100vh - 24rem))`,
-          }}
-        >
-          {getSlashCommandMatches(slashCommandMenu.query).length > 0 ? (
-            getSlashCommandMatches(slashCommandMenu.query).map((command, index) => (
-              <button
-                key={command.id}
-                type="button"
-                role="menuitem"
-                data-active={index === slashCommandMenu.activeIndex ? "true" : undefined}
-                className={
-                  index === slashCommandMenu.activeIndex
-                    ? "note-editor__slash-menu-active"
-                    : undefined
-                }
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => handleSlashCommand(command)}
-              >
-                <span>{command.label}</span>
-                <span>{command.hint}</span>
-              </button>
-            ))
-          ) : (
-            <div className="note-editor__slash-menu-empty">No commands</div>
-          )}
-        </div>
+        <SlashCommandMenu
+          state={slashCommandMenu}
+          onSelect={handleSlashCommand}
+        />
       ) : null}
       {blockContextMenu ? (
-        <div
-          data-note-block-context-menu
-          className="note-editor__context-menu"
-          role="menu"
-          style={{
-            left: `clamp(4px, ${blockContextMenu.x}px, calc(100vw - 14rem))`,
-            top: `clamp(4px, ${blockContextMenu.y}px, calc(100vh - 22rem))`,
-          }}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          <div className="note-editor__context-menu-item note-editor__context-menu-item--submenu">
-            <span>Turn into</span>
-            <span aria-hidden="true">›</span>
-            <div className="note-editor__context-submenu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "paragraph" })}
-              >
-                Text
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "header", level: 1 })}
-              >
-                Heading 1
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "header", level: 2 })}
-              >
-                Heading 2
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "header", level: 3 })}
-              >
-                Heading 3
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  handleConvertBlock({ type: "list", style: "unordered" })
-                }
-              >
-                Bulleted list
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  handleConvertBlock({ type: "list", style: "ordered" })
-                }
-              >
-                Numbered list
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  handleConvertBlock({ type: "list", style: "checklist" })
-                }
-              >
-                Checklist
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "quote" })}
-              >
-                Quote
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "code" })}
-              >
-                Code
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => handleConvertBlock({ type: "math" })}
-              >
-                Math
-              </button>
-            </div>
-          </div>
-          <div className="note-editor__context-menu-separator" />
-          <button
-            type="button"
-            role="menuitem"
-            className="note-editor__context-menu-danger"
-            onClick={() => handleDeleteBlock()}
-          >
-            Delete block
-          </button>
-          <div className="note-editor__context-menu-meta">
-            {blockContextMenu.blockType}
-          </div>
-        </div>
+        <BlockContextMenu
+          state={blockContextMenu}
+          onConvert={handleConvertBlock}
+          onDelete={handleDeleteBlock}
+        />
       ) : null}
     </section>
   );

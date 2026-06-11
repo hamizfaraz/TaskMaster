@@ -6,6 +6,7 @@
  * Handles:
  *   - ATX headings (#, ##, …)
  *   - Fenced code blocks (``` or ~~~) with optional language hint
+ *   - Mermaid diagrams (```mermaid)
  *   - Block math ($$…$$)
  *   - Blockquotes (>)
  *   - Ordered / unordered / checklist lists
@@ -25,6 +26,20 @@ function escapeHtmlAttr(value: string) {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function escapeHtmlText(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function restoreInlineTokens(value: string, tokens: string[]) {
+  return tokens.reduce(
+    (current, token, index) => current.replaceAll(`\u0000${index}\u0000`, token),
+    value,
+  );
 }
 
 /**
@@ -61,6 +76,44 @@ function processInlineMath(line: string): string {
   });
 }
 
+export function renderInlineMarkdownText(line: string): string {
+  const tokens: string[] = [];
+  const stash = (html: string) => {
+    const token = `\u0000${tokens.length}\u0000`;
+    tokens.push(html);
+    return token;
+  };
+
+  const withCodeTokens = line.replace(/`([^`\r\n]+?)`/g, (_match, code: string) =>
+    stash(`<code>${escapeHtmlText(code)}</code>`),
+  );
+  const withMathTokens = processInlineMath(withCodeTokens).replace(
+    /<span class="note-inline-math"[\s\S]*?<\/span>/g,
+    (match) => stash(match),
+  );
+
+  let html = escapeHtmlText(withMathTokens);
+
+  html = html.replace(
+    /\[([^\]\r\n]+)\]\(([^)\s]+)\)/g,
+    (_match, label: string, href: string) =>
+      `<a href="${escapeHtmlAttr(href)}">${label}</a>`,
+  );
+  html = html.replace(
+    /(\*\*\*|___)(?=\S)([\s\S]*?\S)\1/g,
+    "<strong><em>$2</em></strong>",
+  );
+  html = html.replace(
+    /(\*\*|__)(?=\S)([\s\S]*?\S)\1/g,
+    "<strong>$2</strong>",
+  );
+  html = html.replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<s>$1</s>");
+  html = html.replace(/(^|[^\*])\*(?=\S)([^*\r\n]*?\S)\*/g, "$1<em>$2</em>");
+  html = html.replace(/(^|[^_])_(?=\S)([^_\r\n]*?\S)_/g, "$1<em>$2</em>");
+
+  return restoreInlineTokens(html, tokens);
+}
+
 function isListLine(line: string) {
   return /^[-*+]\s/.test(line) || /^\d+\.\s/.test(line);
 }
@@ -74,6 +127,10 @@ function isBlockStartLine(line: string) {
     line.trim() === "$$" ||
     isListLine(line)
   );
+}
+
+function normalizeFenceLanguage(language: string | undefined) {
+  return (language ?? "").trim().toLowerCase().replace(/^language-/, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +150,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
     if (codeFenceMatch) {
       const fence = codeFenceMatch[1]!;
       const lang = (codeFenceMatch[2] ?? "").trim() || undefined;
+      const normalizedLang = normalizeFenceLanguage(lang);
       i++;
       const codeLines: string[] = [];
       while (i < lines.length && !(lines[i] ?? "").startsWith(fence)) {
@@ -100,13 +158,22 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
         i++;
       }
       i++; // skip closing fence
-      blocks.push({
-        type: "code",
-        data: {
-          code: codeLines.join("\n"),
-          ...(lang ? { language: lang } : {}),
-        },
-      });
+      if (normalizedLang === "mermaid" || normalizedLang === "mmd") {
+        blocks.push({
+          type: "mermaid",
+          data: {
+            code: codeLines.join("\n"),
+          },
+        });
+      } else {
+        blocks.push({
+          type: "code",
+          data: {
+            code: codeLines.join("\n"),
+            ...(lang ? { language: lang } : {}),
+          },
+        });
+      }
       continue;
     }
 
@@ -129,7 +196,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
       const level = Math.min(4, headingMatch[1]!.length) as 1 | 2 | 3 | 4;
       blocks.push({
         type: "header",
-        data: { text: (headingMatch[2] ?? "").trim(), level },
+        data: { text: renderInlineMarkdownText((headingMatch[2] ?? "").trim()), level },
       });
       i++;
       continue;
@@ -145,7 +212,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
       blocks.push({
         type: "quote",
         data: {
-          text: quoteLines.map(processInlineMath).join("<br>"),
+          text: quoteLines.map(renderInlineMarkdownText).join("<br>"),
           caption: "",
           alignment: "left",
         },
@@ -170,7 +237,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
         const olMatch = itemLine.match(/^\d+\.\s+(.*)/);
         const ulMatch = itemLine.match(/^[-*+]\s+(.*)/);
         const rawContent = (clMatch?.[2] ?? olMatch?.[1] ?? ulMatch?.[1] ?? "").trim();
-        const content = processInlineMath(rawContent);
+        const content = renderInlineMarkdownText(rawContent);
         const checked = clMatch ? clMatch[1] !== " " : false;
         items.push({
           content,
@@ -199,7 +266,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
       i++;
     }
     if (paragraphLines.length > 0) {
-      const text = paragraphLines.map(processInlineMath).join("<br>");
+      const text = paragraphLines.map(renderInlineMarkdownText).join("<br>");
       blocks.push({ type: "paragraph", data: { text } });
     }
   }

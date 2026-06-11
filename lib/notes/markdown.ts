@@ -126,6 +126,10 @@ function serializeBlock(block: NoteBlock) {
       const lang = block.data.language ?? "";
       return `${fence}${lang}\n${block.data.code}\n${fence}`;
     }
+    case "mermaid": {
+      const fence = createCodeFence(block.data.code);
+      return `${fence}mermaid\n${block.data.code}\n${fence}`;
+    }
     case "image": {
       const altText = htmlToPlainText(block.data.caption) || "Image";
       const caption = htmlToMarkdown(block.data.caption);

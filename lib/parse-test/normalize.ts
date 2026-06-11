@@ -1,3 +1,4 @@
+import { CLASS_ARCHIVE_WARNING } from "@/lib/classes/archive-marker";
 import type { ParseTestEventPayload, ParseTestPayload } from "./contracts";
 import { parseTestPayloadSchema } from "./contracts";
 import { ParseTestError } from "./errors";
@@ -128,6 +129,10 @@ function toAssignmentBackedEvent(assignment: ParseTestPayload["assignments"][num
 }
 
 export function isHighSignalWarning(warning: string) {
+  if (warning === CLASS_ARCHIVE_WARNING) {
+    return false;
+  }
+
   const lowered = warning.toLowerCase();
 
   if (lowered.includes("does not provide specific due dates")) {

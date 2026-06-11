@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { cx } from "@/lib/utils";
+import { AsciiBackground } from "./ascii-background";
+import { useAsciiBackgroundEnabled } from "./background-preference";
 import { AppSidebar } from "./app-sidebar";
 import { useSidebarBehavior } from "./sidebar-preference";
 
@@ -19,6 +21,7 @@ export function AppShell({ children, displayName }: AppShellProps) {
   const sidebarBehavior = useSidebarBehavior();
   const [collapsed, setCollapsed] = useState(true);
   const [hoverExpanded, setHoverExpanded] = useState(false);
+  const asciiBackgroundEnabled = useAsciiBackgroundEnabled();
   const hoverMode = sidebarBehavior === "hover";
   const sidebarCollapsed = hoverMode ? !hoverExpanded : collapsed;
 
@@ -32,10 +35,11 @@ export function AppShell({ children, displayName }: AppShellProps) {
         onToggleCollapsed={() => setCollapsed((current) => !current)}
         onHoverChange={setHoverExpanded}
       />
-      <div className="min-h-0 min-w-0 flex-1">
+      <div className="app-background min-h-0 min-w-0 flex-1">
+        {asciiBackgroundEnabled ? <AsciiBackground /> : null}
         <main
           className={cx(
-            "h-full w-full",
+            "relative z-10 h-full w-full",
             isNotesRoute
               ? "overflow-hidden p-0"
               : isDashboard

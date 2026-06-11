@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MathBlockTool } from "@/components/note-editor/math-block-tool";
+import { MathBlockTool } from "@/components/note-editor/blocks/math-block-tool";
 
 describe("MathBlockTool", () => {
   function createTool() {

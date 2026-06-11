@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { SidebarBehaviorControl } from "@/components/shell/sidebar-preference";
+import { AsciiBackgroundControl } from "@/components/shell/background-preference";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -157,6 +158,16 @@ export function ProfileSettingsForm({ name, email }: ProfileSettingsFormProps) {
             <p className="text-sm font-medium text-foreground">Theme</p>
             <div className="mt-2">
               <ThemeToggle />
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-5">
+            <p className="text-sm font-medium text-foreground">Background texture</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Toggle the animated ASCII background for visual clarity.
+            </p>
+            <div className="mt-3">
+              <AsciiBackgroundControl />
             </div>
           </div>
 

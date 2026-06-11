@@ -45,7 +45,7 @@ export function NoteSurface({
 
   if (!readOnly) {
     return (
-      <div className="note-surface note-surface--editing flex flex-1 flex-col">
+      <div className="note-surface note-surface--editing flex min-h-full shrink-0 flex-col">
         <NoteEditor
           initialDocument={content.document}
           onContentChange={(nextContent) => {

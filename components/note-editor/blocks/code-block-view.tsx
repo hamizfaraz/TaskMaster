@@ -8,8 +8,6 @@ type CodeBlockViewProps = {
 };
 
 export function CodeBlockView({ data }: CodeBlockViewProps) {
-  const highlighted = data.code.trim().length > 0 ? highlightCode(data.code) : null;
-
   return (
     <div className="note-code-block note-code-block--read">
       <pre className="note-code-block__surface">
