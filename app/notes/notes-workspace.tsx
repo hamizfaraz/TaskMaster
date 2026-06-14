@@ -36,6 +36,12 @@ import {
 } from "@/lib/notes/records";
 import { emptyNoteDocument, type NoteContent } from "@/lib/notes/types";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/markdown";
+import {
+  formatTimestamp,
+  getClassLabel,
+  getClassShortLabel,
+  getRenderableTitle,
+} from "@/lib/notes/labels";
 
 type WorkspaceClass = {
   id: string;
@@ -52,53 +58,6 @@ type NotesWorkspaceProps = {
   shouldCreateOnMount: boolean;
   resetHref: string;
 };
-
-const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-
-function formatTimestamp(value: string) {
-  return TIMESTAMP_FORMATTER.format(new Date(value));
-}
-
-function getRenderableTitle(value: string) {
-  return value.trim() || "Untitled";
-}
-
-/** Full label used in tooltips and accessible names */
-function getClassLabel(item: WorkspaceClass) {
-  return item.courseCode ? `${item.courseCode} ${item.title}` : item.title;
-}
-
-/**
- * Short label for compact sidebar contexts.
- * Uses the course code when available (e.g. "CS/CE 4337.006").
- * Falls back to an acronym when there is no code.
- */
-function getClassShortLabel(item: WorkspaceClass) {
-  if (item.courseCode) return item.courseCode;
-  const skip = new Set([
-    "a",
-    "an",
-    "the",
-    "of",
-    "in",
-    "to",
-    "for",
-    "and",
-    "or",
-    "at",
-    "by",
-  ]);
-  const words = item.title.split(/\s+/).filter(Boolean);
-  const acronym = words
-    .filter((w) => !skip.has(w.toLowerCase()))
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-  if (acronym.length <= 1 || item.title.length <= 18) return item.title;
-  return acronym;
-}
 
 const isTempNote = (id: string) => id.startsWith("temp-");
 

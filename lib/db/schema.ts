@@ -120,6 +120,36 @@ export const note = pgTable(
   ],
 );
 
+// Hand-written cheat sheets. Deliberately slimmer than `note`: no embedding,
+// source type, or file columns — cheat sheets are always authored manually and
+// never participate in AI/embedding features.
+export const cheatSheet = pgTable(
+  "cheat_sheet",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("Untitled"),
+    content: jsonb("content"),
+    markdown: text("markdown").notNull().default(""),
+    classId: text("class_id").references(() => parseTestCourse.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("cheat_sheet_user_id_idx").on(table.userId),
+    index("cheat_sheet_class_id_idx").on(table.classId),
+  ],
+);
+
 export const flashcards = pgTable(
   "flashcards",
   {
