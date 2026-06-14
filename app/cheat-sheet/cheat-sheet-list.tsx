@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FileText,
   Folder,
+  PanelLeftClose,
   Plus,
 } from "lucide-react";
 import { cx } from "@/lib/utils";
@@ -28,6 +29,7 @@ type CheatSheetListProps = {
   onToggleGroup: (groupId: string) => void;
   onSelect: (sheet: CheatSheet) => void;
   onCreate: (classId: string | null) => void;
+  onCollapse: () => void;
 };
 
 function CheatSheetItem({
@@ -89,6 +91,7 @@ export function CheatSheetList({
   onToggleGroup,
   onSelect,
   onCreate,
+  onCollapse,
 }: CheatSheetListProps) {
   const classesById = useMemo(
     () => new Map(classes.map((item) => [item.id, item])),
@@ -137,6 +140,15 @@ export function CheatSheetList({
         >
           <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span className="truncate">New cheat sheet</span>
+        </button>
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground"
+          aria-label="Collapse cheat sheet list"
+          title="Collapse cheat sheet list"
+        >
+          <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
 

@@ -18,6 +18,7 @@ import {
   FileText,
   Folder,
   FolderInput,
+  PanelLeftClose,
   Plus,
   Sparkles,
   Square,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import { NoteSurface } from "@/components/note-editor/note-surface";
 import { Button } from "@/components/ui/button";
+import { CollapsedRail } from "@/components/ui/collapsed-rail";
 import { cx } from "@/lib/utils";
 import {
   noteRecordToWorkspaceNote,
@@ -213,6 +215,9 @@ export function NotesWorkspace({
 
   // Upload modal
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // Sidebar collapse (gives the editor full width)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const hasHandledCreateOnMountRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1001,10 +1006,28 @@ export function NotesWorkspace({
         />
       ) : null}
 
-      <div className="grid h-full min-h-0 lg:grid-cols-[292px_minmax(0,1fr)]">
+      <div
+        className={cx(
+          "grid h-full min-h-0",
+          sidebarCollapsed
+            ? "lg:grid-cols-[48px_minmax(0,1fr)]"
+            : "lg:grid-cols-[292px_minmax(0,1fr)]",
+        )}
+      >
         {/* ---------------------------------------------------------------- */}
         {/* Sidebar                                                           */}
         {/* ---------------------------------------------------------------- */}
+        {sidebarCollapsed ? (
+          <CollapsedRail
+            onExpand={() => setSidebarCollapsed(false)}
+            expandLabel="Expand notes list"
+            onNew={() =>
+              startTransition(() => void handleCreateNote(fallbackClassId))
+            }
+            newLabel="New page"
+            newDisabled={isPending}
+          />
+        ) : (
         <aside className="flex h-full min-h-0 flex-col border-b border-border bg-surface-muted/70 lg:border-b-0 lg:border-r">
           {/* Toolbar */}
           <div className="flex h-12 items-center gap-2 border-b border-border px-3">
@@ -1019,16 +1042,15 @@ export function NotesWorkspace({
               <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span className="truncate">New page</span>
             </button>
-            {/* <button
+            <button
               type="button"
-              onClick={() => setIsUploadModalOpen(true)}
-              disabled={isPending}
-              title="Import or generate notes"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-60"
-              aria-label="Import or generate notes"
+              onClick={() => setSidebarCollapsed(true)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground"
+              aria-label="Collapse notes list"
+              title="Collapse notes list"
             >
-              <Upload className="h-4 w-4" aria-hidden="true" />
-            </button> */}
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+            </button>
           </div>
 
           {/* Note list */}
@@ -1280,6 +1302,7 @@ export function NotesWorkspace({
             </div>
           ) : null}
         </aside>
+        )}
 
         {/* ---------------------------------------------------------------- */}
         {/* Editor area                                                        */}

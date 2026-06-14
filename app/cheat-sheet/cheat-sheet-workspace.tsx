@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { Copy, FileText, Trash2 } from "lucide-react";
 import { NoteSurface } from "@/components/note-editor/note-surface";
 import { Button } from "@/components/ui/button";
+import { CollapsedRail } from "@/components/ui/collapsed-rail";
+import { cx } from "@/lib/utils";
 import { formatTimestamp, getRenderableTitle } from "@/lib/notes/labels";
 import {
   rowToCheatSheet,
@@ -44,6 +46,7 @@ export function CheatSheetWorkspace({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
     () => new Set(),
   );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const selectedSheet = useMemo(
@@ -247,20 +250,38 @@ export function CheatSheetWorkspace({
   }
 
   return (
-    <div className="grid h-full min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <CheatSheetList
-        cheatSheets={sheets}
-        classes={classes}
-        selectedId={selectedSheet?.id ?? null}
-        collapsedGroups={collapsedGroups}
-        isPending={isPending}
-        disabled={!storageReady}
-        onToggleGroup={toggleGroup}
-        onSelect={selectSheet}
-        onCreate={(classId) =>
-          startTransition(() => void handleCreate(classId))
-        }
-      />
+    <div
+      className={cx(
+        "grid h-full min-h-0",
+        sidebarCollapsed
+          ? "lg:grid-cols-[48px_minmax(0,1fr)]"
+          : "lg:grid-cols-[260px_minmax(0,1fr)]",
+      )}
+    >
+      {sidebarCollapsed ? (
+        <CollapsedRail
+          onExpand={() => setSidebarCollapsed(false)}
+          expandLabel="Expand cheat sheet list"
+          onNew={() => startTransition(() => void handleCreate(null))}
+          newLabel="New cheat sheet"
+          newDisabled={isPending || !storageReady}
+        />
+      ) : (
+        <CheatSheetList
+          cheatSheets={sheets}
+          classes={classes}
+          selectedId={selectedSheet?.id ?? null}
+          collapsedGroups={collapsedGroups}
+          isPending={isPending}
+          disabled={!storageReady}
+          onToggleGroup={toggleGroup}
+          onSelect={selectSheet}
+          onCreate={(classId) =>
+            startTransition(() => void handleCreate(classId))
+          }
+          onCollapse={() => setSidebarCollapsed(true)}
+        />
+      )}
 
       <section className="h-full min-h-0 bg-background">
         {selectedSheet ? (
