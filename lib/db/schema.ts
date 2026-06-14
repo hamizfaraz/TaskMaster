@@ -409,6 +409,71 @@ export const parseTestConcept = pgTable(
   (table) => [index("parse_test_concepts_course_id_idx").on(table.courseId)],
 );
 
+export const mindMap = pgTable(
+  "mind_map",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    sourceText: text("source_text"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("mind_map_user_id_idx").on(table.userId)],
+);
+
+export const mindMapNode = pgTable(
+  "mind_map_node",
+  {
+    id: text("id").primaryKey(),
+    mapId: text("map_id")
+      .notNull()
+      .references(() => mindMap.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    positionX: doublePrecision("position_x").notNull().default(0),
+    positionY: doublePrecision("position_y").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("mind_map_node_map_id_idx").on(table.mapId)],
+);
+
+export const mindMapEdge = pgTable(
+  "mind_map_edge",
+  {
+    id: text("id").primaryKey(),
+    mapId: text("map_id")
+      .notNull()
+      .references(() => mindMap.id, { onDelete: "cascade" }),
+    sourceNodeId: text("source_node_id")
+      .notNull()
+      .references(() => mindMapNode.id, { onDelete: "cascade" }),
+    targetNodeId: text("target_node_id")
+      .notNull()
+      .references(() => mindMapNode.id, { onDelete: "cascade" }),
+    label: text("label"),
+    isSuggested: boolean("is_suggested").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("mind_map_edge_map_id_idx").on(table.mapId),
+    index("mind_map_edge_source_node_id_idx").on(table.sourceNodeId),
+    index("mind_map_edge_target_node_id_idx").on(table.targetNodeId),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -417,6 +482,7 @@ export const userRelations = relations(user, ({ many }) => ({
   quizzes: many(quizzes),
   quizAttempts: many(quizAttempts),
   parseTestRuns: many(parseTestRun),
+  mindMaps: many(mindMap),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -529,5 +595,38 @@ export const parseTestConceptRelations = relations(parseTestConcept, ({ one }) =
   course: one(parseTestCourse, {
     fields: [parseTestConcept.courseId],
     references: [parseTestCourse.id],
+  }),
+}));
+
+export const mindMapRelations = relations(mindMap, ({ one, many }) => ({
+  user: one(user, {
+    fields: [mindMap.userId],
+    references: [user.id],
+  }),
+  nodes: many(mindMapNode),
+  edges: many(mindMapEdge),
+}));
+
+export const mindMapNodeRelations = relations(mindMapNode, ({ one }) => ({
+  map: one(mindMap, {
+    fields: [mindMapNode.mapId],
+    references: [mindMap.id],
+  }),
+}));
+
+export const mindMapEdgeRelations = relations(mindMapEdge, ({ one }) => ({
+  map: one(mindMap, {
+    fields: [mindMapEdge.mapId],
+    references: [mindMap.id],
+  }),
+  sourceNode: one(mindMapNode, {
+    fields: [mindMapEdge.sourceNodeId],
+    references: [mindMapNode.id],
+    relationName: "sourceNode",
+  }),
+  targetNode: one(mindMapNode, {
+    fields: [mindMapEdge.targetNodeId],
+    references: [mindMapNode.id],
+    relationName: "targetNode",
   }),
 }));
