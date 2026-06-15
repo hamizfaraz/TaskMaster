@@ -8,7 +8,7 @@ const studyPages = [
   { href: "/study/active-recall", title: "Active recall", description: "Timed bullet-point recall scaffold.", live: false },
   { href: "/study/cheat-sheet", title: "Cheat sheet", description: "Read your notes and hand-write a cheat sheet side by side.", live: true },
   { href: "/study/associations", title: "Associations", description: "Mind-map style association builder.", live: true },
-  { href: "/study/spaced-repetition", title: "Spaced repetition", description: "Review scheduling scaffold.", live: false },
+  { href: "/study/spaced-repetition", title: "Spaced repetition", description: "Schedule notes for long-term review on expanding intervals.", live: true },
 ] as const;
 
 export default function StudyPage() {
