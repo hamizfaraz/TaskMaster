@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
 
@@ -147,6 +148,48 @@ export const cheatSheet = pgTable(
   (table) => [
     index("cheat_sheet_user_id_idx").on(table.userId),
     index("cheat_sheet_class_id_idx").on(table.classId),
+  ],
+);
+
+// Spaced-repetition enrollments. Each row links an existing note into a
+// long-term review schedule. Notes are never edited here — we reference
+// `noteId` and read note title/markdown at query time. `stage` indexes into
+// the interval ladder (see lib/spaced-repetition/scheduling.ts); `nextReviewAt`
+// is the single next due review (recomputed after every session).
+export const spacedRepEntry = pgTable(
+  "spaced_rep_entry",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    noteId: text("note_id")
+      .notNull()
+      .references(() => note.id, { onDelete: "cascade" }),
+    enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
+    stage: integer("stage").notNull().default(0),
+    nextReviewAt: timestamp("next_review_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
+    reviewCount: integer("review_count").notNull().default(0),
+    totalStudySeconds: integer("total_study_seconds").notNull().default(0),
+    lastRating: text("last_rating"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("spaced_rep_entry_user_note_idx").on(
+      table.userId,
+      table.noteId,
+    ),
+    index("spaced_rep_entry_user_id_idx").on(table.userId),
+    index("spaced_rep_entry_next_review_idx").on(table.nextReviewAt),
   ],
 );
 
