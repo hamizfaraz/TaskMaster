@@ -18,6 +18,7 @@ import {
   FileText,
   Folder,
   FolderInput,
+  PanelLeftClose,
   Plus,
   Sparkles,
   Square,
@@ -29,6 +30,7 @@ import { NoteSurface } from "@/components/note-editor/note-surface";
 import { AsciiBackground } from "@/components/shell/ascii-background";
 import { useAsciiBackgroundEnabled } from "@/components/shell/background-preference";
 import { Button } from "@/components/ui/button";
+import { CollapsedRail } from "@/components/ui/collapsed-rail";
 import { cx } from "@/lib/utils";
 import {
   noteRecordToWorkspaceNote,
@@ -38,6 +40,12 @@ import {
 } from "@/lib/notes/records";
 import { emptyNoteDocument, type NoteContent } from "@/lib/notes/types";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/markdown";
+import {
+  formatTimestamp,
+  getClassLabel,
+  getClassShortLabel,
+  getRenderableTitle,
+} from "@/lib/notes/labels";
 
 type WorkspaceClass = {
   id: string;
@@ -54,53 +62,6 @@ type NotesWorkspaceProps = {
   shouldCreateOnMount: boolean;
   resetHref: string;
 };
-
-const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
-
-function formatTimestamp(value: string) {
-  return TIMESTAMP_FORMATTER.format(new Date(value));
-}
-
-function getRenderableTitle(value: string) {
-  return value.trim() || "Untitled";
-}
-
-/** Full label used in tooltips and accessible names */
-function getClassLabel(item: WorkspaceClass) {
-  return item.courseCode ? `${item.courseCode} ${item.title}` : item.title;
-}
-
-/**
- * Short label for compact sidebar contexts.
- * Uses the course code when available (e.g. "CS/CE 4337.006").
- * Falls back to an acronym when there is no code.
- */
-function getClassShortLabel(item: WorkspaceClass) {
-  if (item.courseCode) return item.courseCode;
-  const skip = new Set([
-    "a",
-    "an",
-    "the",
-    "of",
-    "in",
-    "to",
-    "for",
-    "and",
-    "or",
-    "at",
-    "by",
-  ]);
-  const words = item.title.split(/\s+/).filter(Boolean);
-  const acronym = words
-    .filter((w) => !skip.has(w.toLowerCase()))
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-  if (acronym.length <= 1 || item.title.length <= 18) return item.title;
-  return acronym;
-}
 
 const isTempNote = (id: string) => id.startsWith("temp-");
 
@@ -257,6 +218,9 @@ export function NotesWorkspace({
 
   // Upload modal
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // Sidebar collapse (gives the editor full width)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const hasHandledCreateOnMountRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1045,10 +1009,28 @@ export function NotesWorkspace({
         />
       ) : null}
 
-      <div className="grid h-full min-h-0 lg:grid-cols-[292px_minmax(0,1fr)]">
+      <div
+        className={cx(
+          "grid h-full min-h-0",
+          sidebarCollapsed
+            ? "lg:grid-cols-[48px_minmax(0,1fr)]"
+            : "lg:grid-cols-[292px_minmax(0,1fr)]",
+        )}
+      >
         {/* ---------------------------------------------------------------- */}
         {/* Sidebar                                                           */}
         {/* ---------------------------------------------------------------- */}
+        {sidebarCollapsed ? (
+          <CollapsedRail
+            onExpand={() => setSidebarCollapsed(false)}
+            expandLabel="Expand notes list"
+            onNew={() =>
+              startTransition(() => void handleCreateNote(fallbackClassId))
+            }
+            newLabel="New page"
+            newDisabled={isPending}
+          />
+        ) : (
         <aside className="flex h-full min-h-0 flex-col border-b border-border bg-surface-muted/70 lg:border-b-0 lg:border-r">
           {/* Toolbar */}
           <div className="flex h-12 items-center gap-2 border-b border-border px-3">
@@ -1063,16 +1045,15 @@ export function NotesWorkspace({
               <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span className="truncate">New page</span>
             </button>
-            {/* <button
+            <button
               type="button"
-              onClick={() => setIsUploadModalOpen(true)}
-              disabled={isPending}
-              title="Import or generate notes"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground disabled:opacity-60"
-              aria-label="Import or generate notes"
+              onClick={() => setSidebarCollapsed(true)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground"
+              aria-label="Collapse notes list"
+              title="Collapse notes list"
             >
-              <Upload className="h-4 w-4" aria-hidden="true" />
-            </button> */}
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+            </button>
           </div>
 
           {/* Note list */}
@@ -1324,6 +1305,7 @@ export function NotesWorkspace({
             </div>
           ) : null}
         </aside>
+        )}
 
         {/* ---------------------------------------------------------------- */}
         {/* Editor area                                                        */}

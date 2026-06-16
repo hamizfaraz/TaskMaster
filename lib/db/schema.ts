@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
 
@@ -117,6 +118,78 @@ export const note = pgTable(
     index("note_userId_idx").on(table.userId),
     index("note_class_id_idx").on(table.classId),
     index("note_createdAt_idx").on(table.createdAt),
+  ],
+);
+
+// Hand-written cheat sheets. Deliberately slimmer than `note`: no embedding,
+// source type, or file columns — cheat sheets are always authored manually and
+// never participate in AI/embedding features.
+export const cheatSheet = pgTable(
+  "cheat_sheet",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("Untitled"),
+    content: jsonb("content"),
+    markdown: text("markdown").notNull().default(""),
+    classId: text("class_id").references(() => parseTestCourse.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("cheat_sheet_user_id_idx").on(table.userId),
+    index("cheat_sheet_class_id_idx").on(table.classId),
+  ],
+);
+
+// Spaced-repetition enrollments. Each row links an existing note into a
+// long-term review schedule. Notes are never edited here — we reference
+// `noteId` and read note title/markdown at query time. `stage` indexes into
+// the interval ladder (see lib/spaced-repetition/scheduling.ts); `nextReviewAt`
+// is the single next due review (recomputed after every session).
+export const spacedRepEntry = pgTable(
+  "spaced_rep_entry",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    noteId: text("note_id")
+      .notNull()
+      .references(() => note.id, { onDelete: "cascade" }),
+    enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
+    stage: integer("stage").notNull().default(0),
+    nextReviewAt: timestamp("next_review_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
+    reviewCount: integer("review_count").notNull().default(0),
+    totalStudySeconds: integer("total_study_seconds").notNull().default(0),
+    lastRating: text("last_rating"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("spaced_rep_entry_user_note_idx").on(
+      table.userId,
+      table.noteId,
+    ),
+    index("spaced_rep_entry_user_id_idx").on(table.userId),
+    index("spaced_rep_entry_next_review_idx").on(table.nextReviewAt),
   ],
 );
 
@@ -409,6 +482,71 @@ export const parseTestConcept = pgTable(
   (table) => [index("parse_test_concepts_course_id_idx").on(table.courseId)],
 );
 
+export const mindMap = pgTable(
+  "mind_map",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    sourceText: text("source_text"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("mind_map_user_id_idx").on(table.userId)],
+);
+
+export const mindMapNode = pgTable(
+  "mind_map_node",
+  {
+    id: text("id").primaryKey(),
+    mapId: text("map_id")
+      .notNull()
+      .references(() => mindMap.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    positionX: doublePrecision("position_x").notNull().default(0),
+    positionY: doublePrecision("position_y").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("mind_map_node_map_id_idx").on(table.mapId)],
+);
+
+export const mindMapEdge = pgTable(
+  "mind_map_edge",
+  {
+    id: text("id").primaryKey(),
+    mapId: text("map_id")
+      .notNull()
+      .references(() => mindMap.id, { onDelete: "cascade" }),
+    sourceNodeId: text("source_node_id")
+      .notNull()
+      .references(() => mindMapNode.id, { onDelete: "cascade" }),
+    targetNodeId: text("target_node_id")
+      .notNull()
+      .references(() => mindMapNode.id, { onDelete: "cascade" }),
+    label: text("label"),
+    isSuggested: boolean("is_suggested").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("mind_map_edge_map_id_idx").on(table.mapId),
+    index("mind_map_edge_source_node_id_idx").on(table.sourceNodeId),
+    index("mind_map_edge_target_node_id_idx").on(table.targetNodeId),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -417,6 +555,7 @@ export const userRelations = relations(user, ({ many }) => ({
   quizzes: many(quizzes),
   quizAttempts: many(quizAttempts),
   parseTestRuns: many(parseTestRun),
+  mindMaps: many(mindMap),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -529,5 +668,38 @@ export const parseTestConceptRelations = relations(parseTestConcept, ({ one }) =
   course: one(parseTestCourse, {
     fields: [parseTestConcept.courseId],
     references: [parseTestCourse.id],
+  }),
+}));
+
+export const mindMapRelations = relations(mindMap, ({ one, many }) => ({
+  user: one(user, {
+    fields: [mindMap.userId],
+    references: [user.id],
+  }),
+  nodes: many(mindMapNode),
+  edges: many(mindMapEdge),
+}));
+
+export const mindMapNodeRelations = relations(mindMapNode, ({ one }) => ({
+  map: one(mindMap, {
+    fields: [mindMapNode.mapId],
+    references: [mindMap.id],
+  }),
+}));
+
+export const mindMapEdgeRelations = relations(mindMapEdge, ({ one }) => ({
+  map: one(mindMap, {
+    fields: [mindMapEdge.mapId],
+    references: [mindMap.id],
+  }),
+  sourceNode: one(mindMapNode, {
+    fields: [mindMapEdge.sourceNodeId],
+    references: [mindMapNode.id],
+    relationName: "sourceNode",
+  }),
+  targetNode: one(mindMapNode, {
+    fields: [mindMapEdge.targetNodeId],
+    references: [mindMapNode.id],
+    relationName: "targetNode",
   }),
 }));

@@ -6,9 +6,9 @@ const studyPages = [
   { href: "/study/pomodoro", title: "Pomodoro", description: "A real local timer you can use today.", live: true },
   { href: "/study/feynman", title: "Feynman", description: "Explanation-first study workflow scaffold.", live: false },
   { href: "/study/active-recall", title: "Active recall", description: "Timed bullet-point recall scaffold.", live: false },
-  { href: "/study/cheat-sheet", title: "Cheat sheet", description: "Split-pane note and summary scaffold.", live: false },
-  { href: "/study/associations", title: "Associations", description: "Mind-map style association builder scaffold.", live: false },
-  { href: "/study/spaced-repetition", title: "Spaced repetition", description: "Review scheduling scaffold.", live: false },
+  { href: "/study/cheat-sheet", title: "Cheat sheet", description: "Read your notes and hand-write a cheat sheet side by side.", live: true },
+  { href: "/study/associations", title: "Associations", description: "Mind-map style association builder.", live: true },
+  { href: "/study/spaced-repetition", title: "Spaced repetition", description: "Schedule notes for long-term review on expanding intervals.", live: true },
 ] as const;
 
 export default function StudyPage() {
