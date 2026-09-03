@@ -22,6 +22,7 @@ import type {
   NoteTableAlignment,
 } from "@/lib/notes/types";
 import { normalizeLatex } from "@/lib/math/latex";
+import { isInlineMathCandidate } from "@/lib/notes/math-ranges";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 
 // ---------------------------------------------------------------------------
@@ -51,12 +52,9 @@ function restoreInlineTokens(value: string, tokens: string[]) {
 }
 
 /**
- * Detect and replace inline math ($…$) within a single line of text.
- *
- * Heuristic: we match $content$ where content is non-empty and contains at
- * least one LaTeX-typical character (backslash, caret, underscore, or braces)
- * OR is a short single-token that doesn't look like a shell / currency value.
- * This avoids false-positives on "$HOME", "$5.99", etc.
+ * Detect and replace inline math ($…$) within a single line of text, using
+ * the same Pandoc rule as the shared scanner in `lib/notes/math-ranges.ts`
+ * so the derived block cache agrees with what the editor renders.
  *
  * The result is a <span class="note-inline-math" data-latex="…"> element so
  * the serializer and renderer can round-trip it cleanly.
@@ -66,20 +64,12 @@ function processInlineMath(line: string): string {
   // Pattern: $<non-empty, non-newline content>$ — negative lookaround for $
   const re = /(?<!\$)\$(?!\$)([^$\r\n]+?)(?<!\$)\$(?!\$)/g;
 
-  return line.replace(re, (_match, content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) return _match;
-
-    // Accept as inline math if content contains any LaTeX-specific char, or
-    // is a multi-character expression that can't be a bare shell identifier.
-    const hasLatexChar = /[\\^_{}]/.test(trimmed);
-    const isBareShellId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed);
-    const isCurrency = /^\d/.test(trimmed);
-
-    if (!hasLatexChar && (isBareShellId || isCurrency)) {
-      return _match; // leave untouched
+  return line.replace(re, (match: string, content: string, offset: number) => {
+    if (!isInlineMathCandidate(content, line[offset + match.length])) {
+      return match;
     }
 
+    const trimmed = content.trim();
     return `<span class="note-inline-math" data-latex="${escapeHtmlAttr(trimmed)}">$${trimmed}$</span>`;
   });
 }

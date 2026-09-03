@@ -1,5 +1,5 @@
-import { normalizeTextMathToLatex } from "@/lib/math/latex";
 import { parseMarkdownToNoteDocument, serializeNoteDocumentToMarkdown } from "@/lib/notes/markdown";
+import { normalizeMarkdownMath } from "@/lib/notes/math-ranges";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { emptyNoteDocument, NoteDocumentSchema, type NoteDocument } from "@/lib/notes/types";
 
@@ -26,15 +26,16 @@ export function normalizeNoteWriteContent(value: unknown = emptyNoteDocument): N
 /**
  * Canonical write path: the client sends Markdown (+ LaTeX) and it is stored
  * as-authored, apart from line-ending normalization and typed-math → LaTeX
- * normalization inside `$…$` / `$$…$$` regions (issue #58). The block
- * document is derived from it as a cache for consumers that still read blocks.
+ * normalization inside math regions only (issue #58) — code and prose are
+ * never touched. The block document is derived from it as a cache for
+ * consumers that still read blocks.
  */
 export function normalizeNoteWriteMarkdown(value: unknown): NormalizedNoteWriteContent {
   if (typeof value !== "string") {
     throw new Error("Note markdown must be a string.");
   }
 
-  const markdown = normalizeTextMathToLatex(value.replace(/\r\n?/g, "\n"));
+  const markdown = normalizeMarkdownMath(value.replace(/\r\n?/g, "\n"));
 
   return {
     document: parseMarkdownToNoteDocument(markdown),

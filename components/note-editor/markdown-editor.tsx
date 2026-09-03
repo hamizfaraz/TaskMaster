@@ -12,7 +12,13 @@ import {
   keymap,
   placeholder as placeholderExtension,
 } from "@codemirror/view";
+import { livePreview } from "@/components/note-editor/extensions/live-preview";
+import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
 import { editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
+
+function previewExtensions(sourceMode: boolean) {
+  return sourceMode ? [] : [livePreview(), mathWidgets()];
+}
 
 export type MarkdownEditorProps = {
   /**
@@ -23,6 +29,8 @@ export type MarkdownEditorProps = {
   value: string;
   onChange: (markdown: string) => void;
   readOnly?: boolean;
+  /** Show raw Markdown everywhere instead of live preview. */
+  sourceMode?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
@@ -36,6 +44,7 @@ export default function MarkdownEditor({
   value,
   onChange,
   readOnly = false,
+  sourceMode = false,
   placeholder = "Start writing…",
   autoFocus = false,
   className,
@@ -44,6 +53,7 @@ export default function MarkdownEditor({
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const readOnlyCompartment = useRef(new Compartment()).current;
+  const previewCompartment = useRef(new Compartment()).current;
   onChangeRef.current = onChange;
 
   useEffect(() => {
@@ -65,6 +75,7 @@ export default function MarkdownEditor({
           markdownHighlight,
           editorTheme,
           placeholderExtension(placeholder),
+          previewCompartment.of(previewExtensions(sourceMode)),
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((update) => {
@@ -110,6 +121,12 @@ export default function MarkdownEditor({
       effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(readOnly)),
     });
   }, [readOnly, readOnlyCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: previewCompartment.reconfigure(previewExtensions(sourceMode)),
+    });
+  }, [sourceMode, previewCompartment]);
 
   return <div ref={hostRef} className={className} data-testid="markdown-editor" />;
 }
