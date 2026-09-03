@@ -1,11 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef } from "react";
-import { AlertCircle, Check, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Check, Code2, Eye, Loader2 } from "lucide-react";
+import type { ImageUploader } from "@/components/note-editor/extensions/image-drop";
+import { useAutosave, type AutosaveStatus } from "@/components/note-editor/use-autosave";
 import { isTempNoteId } from "@/lib/notes/records";
 import { cx } from "@/lib/utils";
-import { useAutosave, type AutosaveStatus } from "@/components/note-editor/use-autosave";
 
 // CodeMirror is DOM-only; keep it out of the server bundle and initial paint.
 const MarkdownEditor = dynamic(() => import("@/components/note-editor/markdown-editor"), {
@@ -20,6 +21,8 @@ export type NoteEditorProps = {
   /** False while the note is still being created (temporary client id). */
   saveEnabled?: boolean;
   readOnly?: boolean;
+  /** Where dropped/pasted images go. Defaults to an inline data URL (see #86). */
+  uploadImage?: ImageUploader;
   className?: string;
 };
 
@@ -82,8 +85,10 @@ export function NoteEditor({
   onSave,
   saveEnabled = true,
   readOnly = false,
+  uploadImage,
   className,
 }: NoteEditorProps) {
+  const [sourceMode, setSourceMode] = useState(false);
   const { status, draft, notifyChange, flush, retry } = useAutosave({
     noteId,
     onSave,
@@ -124,10 +129,24 @@ export function NoteEditor({
 
   return (
     <div className={cx("relative", className)}>
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setSourceMode((current) => !current)}
+          aria-pressed={sourceMode}
+          title={sourceMode ? "Show live preview" : "Show Markdown source"}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 text-xs text-muted-foreground transition hover:border-border-strong hover:text-foreground"
+        >
+          {sourceMode ? <Eye className="size-3.5" /> : <Code2 className="size-3.5" />}
+          {sourceMode ? "Preview" : "Source"}
+        </button>
+      </div>
       <MarkdownEditor
         value={value}
         onChange={handleChange}
         readOnly={readOnly}
+        sourceMode={sourceMode}
+        uploadImage={uploadImage}
         autoFocus={!readOnly}
       />
       <SaveStatus status={status} onRetry={() => void retry()} />

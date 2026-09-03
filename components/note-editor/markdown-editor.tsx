@@ -12,8 +12,10 @@ import {
   keymap,
   placeholder as placeholderExtension,
 } from "@codemirror/view";
+import { imageDrop, type ImageUploader } from "@/components/note-editor/extensions/image-drop";
 import { livePreview } from "@/components/note-editor/extensions/live-preview";
 import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
+import { slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 
 function previewExtensions(sourceMode: boolean) {
@@ -31,6 +33,8 @@ export type MarkdownEditorProps = {
   readOnly?: boolean;
   /** Show raw Markdown everywhere instead of live preview. */
   sourceMode?: boolean;
+  /** Handles dropped/pasted image files; defaults to an inline data URL. */
+  uploadImage?: ImageUploader;
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
@@ -45,6 +49,7 @@ export default function MarkdownEditor({
   onChange,
   readOnly = false,
   sourceMode = false,
+  uploadImage,
   placeholder = "Start writing…",
   autoFocus = false,
   className,
@@ -54,6 +59,7 @@ export default function MarkdownEditor({
   const onChangeRef = useRef(onChange);
   const readOnlyCompartment = useRef(new Compartment()).current;
   const previewCompartment = useRef(new Compartment()).current;
+  const uploadCompartment = useRef(new Compartment()).current;
   onChangeRef.current = onChange;
 
   useEffect(() => {
@@ -75,6 +81,8 @@ export default function MarkdownEditor({
           markdownHighlight,
           editorTheme,
           placeholderExtension(placeholder),
+          slashMenu(),
+          uploadCompartment.of(imageDrop(uploadImage)),
           previewCompartment.of(previewExtensions(sourceMode)),
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
@@ -127,6 +135,12 @@ export default function MarkdownEditor({
       effects: previewCompartment.reconfigure(previewExtensions(sourceMode)),
     });
   }, [sourceMode, previewCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: uploadCompartment.reconfigure(imageDrop(uploadImage)),
+    });
+  }, [uploadImage, uploadCompartment]);
 
   return <div ref={hostRef} className={className} data-testid="markdown-editor" />;
 }

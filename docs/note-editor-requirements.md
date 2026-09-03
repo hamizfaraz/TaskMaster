@@ -1,7 +1,7 @@
 # Note Editor — Requirements
 
-Status: **requirements captured (NE-1 – NE-9); all decisions made (Q1 – Q8);
-build in progress — data layer and API are done.** The previous Editor.js-based editor was removed on this branch
+Status: **built.** All nine requirements are implemented and covered by tests;
+see [Built](#built) for where each one lives and how to verify it by hand. The previous Editor.js-based editor was removed on this branch
 (see [Background](#background)); nothing has been chosen or built yet.
 
 Section 1 is what was asked for. Section 2 is what has to be decided before
@@ -161,6 +161,47 @@ least match, plus what NE-1–NE-8 add:
 | Q8 | **Highlights** — #7, #8, #89 all need the editor to expose highlighted regions. In scope for the first build, or a follow-on? Affects the block schema. | No | **Follow-on.** The editor styles Obsidian's `==highlight==` syntax and stores it as markdown, which gives #7 / #89 a retrievable hook without a schema change now. |
 ---
 
+## Built
+
+| Req | Where | Notes |
+|-----|-------|-------|
+| NE-1 | `lib/notes/persistence.ts` `normalizeNoteWriteMarkdown`; both `/api/notes` routes accept `markdown` | Markdown is stored as authored; the block document is derived from it. |
+| NE-2 | `lib/notes/math-ranges.ts` (shared scanner) | `$…$` inline, `$$` on its own lines for display — the generator's exact shape. Pandoc's rule decides inline math. |
+| NE-3 | Editor edits the markdown string directly; `math-ranges.test.ts`, `persistence.test.ts`, `table-block.test.ts` | Round-trip is the identity by construction. Code and prose are byte-for-byte untouched by normalization; the old `$x$ .` defect is fixed. |
+| NE-4 | `extensions/slash-menu.ts` | `/` opens 14 commands: text, H1–H3, bullet/numbered/checklist, quote, code, table, image, divider, math block, inline math. Typing Markdown directly works too. |
+| NE-5 | `/Math block` → `$$\n…\n$$`, `/Inline math` → `$…$`, both open the field immediately | |
+| NE-6 | `extensions/live-preview.ts`, `extensions/math-widgets.ts`; Source/Preview toggle in `note-editor.tsx` | CodeMirror 6, which is what Obsidian is built on. Syntax hides off the active line; math renders with KaTeX. |
+| NE-7 | `extensions/math-field-widget.ts` | MathLive field replaces the formula; the **LaTeX** button exposes a synchronized source textarea; `normalizeLatex` runs on exit. |
+| NE-8 | MathLive owns the keyboard while a field is focused | Backspace deletes a fraction or root as a unit. |
+| NE-9 | `use-autosave.ts`; one undo step per math session; `Mod-e` opens math; dark mode via tokens | Coalescing autosave with retry and a visible status pill; failed saves re-queue instead of dropping. |
+
+### Verify by hand (`pnpm dev` → `/notes`)
+
+1. Open an uploaded note, click **Source**: the body is exactly the stored
+   markdown. Edit one character, undo it, wait for **Saved**, then compare
+   `GET /api/notes/:id` `markdown` — identical bytes.
+2. Type `/` on an empty line and insert each block type. Type `# `, `- `,
+   `> ` directly and watch the marks hide when the cursor leaves the line.
+3. Click a formula: a MathLive field opens. Type `\frac{a}{b}`, put the cursor
+   after it, press Backspace — the fraction goes as a unit. Press Escape; the
+   cursor lands after the region; Ctrl+Z reverts the whole edit at once.
+4. Press **LaTeX** inside a field and edit the source — the rendering follows.
+5. Kill the dev server, type: **Save failed · Retry** appears with a toast.
+   Restart, press Retry — saved.
+6. Toggle dark mode: the field, KaTeX, and slash menu stay legible.
+
+### Known limitations
+
+- MathLive was exercised in jsdom through a stub element; focus handling in
+  real browsers (Safari especially) still needs the manual pass above.
+- Tables render as monospace source in live preview, not as a grid widget.
+- Mermaid fences render as plain code (the renderer was removed with the old
+  editor); code fences highlight via `@codemirror/language-data`.
+- Images inline as base64 until #86 lands (2 MB cap).
+- `==highlight==` is styled in the editor only; `LatexMarkdown` shows it raw.
+
+---
+
 ## Background
 
 The prior editor was a ~4,200-line custom shell around Editor.js
@@ -187,18 +228,20 @@ What it did, for reference when deciding what to keep:
 
 ## Where it plugs in
 
-`app/notes/notes-workspace.tsx:1411` (marked `SEAM:`). The workspace still owns
-note CRUD, the sidebar, class grouping, and the title input — the editor is
+`app/notes/notes-workspace.tsx` mounts `<NoteEditor>` from
+`components/note-editor/note-editor.tsx` below the title input. The workspace
+still owns note CRUD, the sidebar, class grouping, and the title; the editor is
 only responsible for the note **body**.
 
-Contract the seam expects:
+Contract:
 
-- **Receives** `selectedNote.content.document` (a `NoteDocument`)
-- **Persists** via `saveNote(selectedNote.id, { title, content })`
-- Must not save while `isTempNote(id)` is true (optimistic-create guard)
-
-Currently the seam renders `selectedNote.content.markdown` read-only so notes
-stay viewable until the replacement lands.
+- **Receives** `initialMarkdown={selectedNote.content.markdown}` — the
+  markdown string is the document
+- **Persists** via `onSave={(noteId, markdown) => saveNote(noteId, { markdown })}`
+- `saveEnabled={!isTempNote(id)}` while the note is still being created;
+  edits made in that window are held and saved under the real id afterwards
+- Optional `uploadImage(file) → { url }` for dropped/pasted images
+  (defaults to an inline data URL until #86)
 
 ---
 
@@ -223,7 +266,9 @@ representations are stored, and the markdown form is what feeds embeddings,
 flashcards, and quizzes.
 
 **Block types currently in the schema:** `paragraph`, `header`, `list`,
-`quote`, `code`, `mermaid`, `image`, `math`.
+`quote`, `code`, `mermaid`, `image`, `table`, `math`, `inlineMath`. Since Q1
+the block document is a derived cache of the markdown column, not a source of
+truth.
 
 A new editor does not have to support all of these, but changing or dropping a
 block type means deciding what happens to notes already stored in that shape.
@@ -252,8 +297,10 @@ From `AGENTS.md` — these hold regardless of what is chosen:
 `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex`, `katex`,
 `turndown` + `turndown-plugin-gfm`, `radix-ui` (installed, unused in app code).
 
-**Removed — would need re-adding:** `@editorjs/*`, `mathlive`, `mermaid`,
-`highlight.js`.
+**Removed:** `@editorjs/*`, `mermaid`, `highlight.js`.
+**Added for the rebuild:** `@codemirror/state`, `view`, `language`,
+`commands`, `lang-markdown`, `language-data`, `autocomplete`, `@lezer/markdown`,
+`@lezer/highlight`, and `mathlive` (re-added).
 
 ---
 
