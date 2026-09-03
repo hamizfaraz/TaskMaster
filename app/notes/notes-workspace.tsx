@@ -31,10 +31,12 @@ import { Button } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 import {
   noteRecordToWorkspaceNote,
+  isTempNoteId,
   sortWorkspaceNotes,
   type NoteRecord,
   type WorkspaceNote,
 } from "@/lib/notes/records";
+import { NoteEditor } from "@/components/note-editor/note-editor";
 
 type WorkspaceClass = {
   id: string;
@@ -99,7 +101,7 @@ function getClassShortLabel(item: WorkspaceClass) {
   return acronym;
 }
 
-const isTempNote = (id: string) => id.startsWith("temp-");
+const isTempNote = isTempNoteId;
 
 function createTempNote(
   classId: string | null,
@@ -1410,24 +1412,13 @@ export function NotesWorkspace({
                   </div>
                 </div>
 
-                {/* SEAM: the note editor was removed and is being rebuilt.
-                    Mount the new editor here. It should receive
-                    `selectedNote.content.document` and persist through
-                    `saveNote(selectedNote.id, { title, content })`. Until
-                    then the stored markdown is shown read-only so note
-                    content stays reachable. */}
-                <div className="mx-auto w-full px-4 pb-10 pt-8 md:px-10">
-                  <p className="mb-3 text-sm text-muted-foreground">
-                    The note editor is being rebuilt. Content is read-only for now.
-                  </p>
-                  {selectedNote.content.markdown.trim() ? (
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-border bg-surface-muted p-4 font-mono text-sm text-foreground">
-                      {selectedNote.content.markdown}
-                    </pre>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">This note is empty.</p>
-                  )}
-                </div>
+                <NoteEditor
+                  className="mx-auto w-full px-4 pb-10 pt-6 md:px-10"
+                  noteId={selectedNote.id}
+                  initialMarkdown={selectedNote.content.markdown}
+                  saveEnabled={!isTempNote(selectedNote.id)}
+                  onSave={(noteId, markdown) => saveNote(noteId, { markdown })}
+                />
               </div>
             </div>
           ) : (

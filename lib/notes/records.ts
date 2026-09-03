@@ -244,3 +244,8 @@ export function sortWorkspaceNotes(notes: WorkspaceNote[]) {
     (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
   );
 }
+
+/** Notes created optimistically on the client carry a `temp-` id until the server responds. */
+export function isTempNoteId(id: string) {
+  return id.startsWith("temp-");
+}
