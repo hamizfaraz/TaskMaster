@@ -1,7 +1,43 @@
-import { type EditorState, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { type EditorState, Prec, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
 import katex from "katex";
-import { findMathRanges } from "@/lib/notes/math-ranges";
+import { findMathRanges, type MathRange } from "@/lib/notes/math-ranges";
+import {
+  enterMath,
+  exitMath,
+  MathFieldWidget,
+  mathSessionField,
+} from "@/components/note-editor/extensions/math-field-widget";
+import { loadMathLive } from "@/components/note-editor/extensions/mathlive-loader";
+
+// ---------------------------------------------------------------------------
+// Opening a region for structural editing
+// ---------------------------------------------------------------------------
+
+/** The math range containing or touching `pos`, if any. */
+export function mathRangeAt(state: EditorState, pos: number): MathRange | null {
+  return findMathRanges(state.doc.toString()).find((range) => range.from <= pos && pos <= range.to) ?? null;
+}
+
+/**
+ * Swap a region's KaTeX rendering for a MathLive field. MathLive is fetched
+ * on first use, so the first open in a session can take a moment.
+ */
+export function openMathRegion(view: EditorView, range: { from: number; to: number }) {
+  void loadMathLive()
+    .then(() => {
+      if (view.dom.isConnected) {
+        view.dispatch({ effects: enterMath.of({ from: range.from, to: range.to }) });
+      }
+    })
+    .catch(() => {
+      // The region simply stays as source text; nothing to recover.
+    });
+}
+
+// ---------------------------------------------------------------------------
+// KaTeX rendering (regions not being edited)
+// ---------------------------------------------------------------------------
 
 const katexCache = new Map<string, string>();
 
@@ -31,46 +67,72 @@ class KatexWidget extends WidgetType {
     return other.latex === this.latex && other.display === this.display;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const element = document.createElement(this.display ? "div" : "span");
     element.className = this.display ? "cm-note-math cm-note-math-display" : "cm-note-math";
+    element.setAttribute("role", "button");
+    element.setAttribute("title", "Edit formula");
     element.innerHTML = renderKatex(this.latex, this.display);
+    element.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      // Positions are read from the DOM at click time, so edits elsewhere in
+      // the note never leave this widget holding stale offsets.
+      const range = mathRangeAt(view.state, view.posAtDOM(element));
+      if (range) {
+        openMathRegion(view, range);
+      }
+    });
     return element;
   }
 
-  ignoreEvent() {
-    // A click lands the cursor at the widget's edge, which "touches" the
-    // region and reveals its source — the Obsidian live-preview behaviour.
-    return false;
+  ignoreEvent(event: Event) {
+    return event.type === "mousedown";
   }
 }
+
+// ---------------------------------------------------------------------------
+// Decorations
+// ---------------------------------------------------------------------------
 
 /** A region the selection touches (inclusive) shows its raw `$…$` source. */
 function touchesSelection(state: EditorState, from: number, to: number) {
   return state.selection.ranges.some((range) => range.from <= to && range.to >= from);
 }
 
+/** Block widgets must cover whole lines; the generator's `$$` fence form does. */
+function isBlockShaped(state: EditorState, from: number, to: number) {
+  const doc = state.doc;
+  const start = doc.lineAt(from);
+  const end = doc.lineAt(to);
+  return start.number !== end.number && start.from === from && end.to === to;
+}
+
 function buildMathDecorations(state: EditorState): DecorationSet {
   const doc = state.doc;
+  const session = state.field(mathSessionField, false) ?? null;
   const decorations = [];
 
   for (const range of findMathRanges(doc.toString())) {
+    if (session && range.from < session.to && range.to > session.from) {
+      continue; // rendered as the open field below
+    }
     if (touchesSelection(state, range.from, range.to)) {
       continue;
     }
-
-    // Block widgets must cover whole lines; the generator's `$$` fence form
-    // does, anything else renders inline (which may hide its line breaks).
-    const startsLine = doc.lineAt(range.from).from === range.from;
-    const endsLine = doc.lineAt(range.to).to === range.to;
-    const spansLines = doc.lineAt(range.from).number !== doc.lineAt(range.to).number;
-    const block = range.display && spansLines && startsLine && endsLine;
-
     decorations.push(
       Decoration.replace({
         widget: new KatexWidget(range.latex, range.display),
-        block,
+        block: range.display && isBlockShaped(state, range.from, range.to),
       }).range(range.from, range.to),
+    );
+  }
+
+  if (session) {
+    decorations.push(
+      Decoration.replace({
+        widget: new MathFieldWidget(session, doc.sliceString(session.contentFrom, session.contentTo)),
+        block: session.display && isBlockShaped(state, session.from, session.to),
+      }).range(session.from, session.to),
     );
   }
 
@@ -80,13 +142,16 @@ function buildMathDecorations(state: EditorState): DecorationSet {
 /**
  * Math rendering lives in a StateField (not a ViewPlugin) because display
  * math spanning lines needs block-level replace decorations, which only
- * fields may provide. The same field feeds `atomicRanges` so the cursor
- * steps over a rendered formula as one unit.
+ * fields may provide. The same set feeds `atomicRanges` so the cursor steps
+ * over a rendered formula as one unit.
  */
 const mathDecorationsField = StateField.define<DecorationSet>({
   create: buildMathDecorations,
   update(decorations, transaction) {
-    return transaction.docChanged || transaction.selection
+    const sessionChanged = transaction.effects.some(
+      (effect) => effect.is(enterMath) || effect.is(exitMath),
+    );
+    return transaction.docChanged || transaction.selection || sessionChanged
       ? buildMathDecorations(transaction.state)
       : decorations;
   },
@@ -96,10 +161,31 @@ const mathDecorationsField = StateField.define<DecorationSet>({
   ],
 });
 
+const mathKeymap = Prec.high(
+  keymap.of([
+    {
+      key: "Mod-e",
+      run(view) {
+        const range = mathRangeAt(view.state, view.state.selection.main.head);
+        if (!range) {
+          return false;
+        }
+        openMathRegion(view, range);
+        return true;
+      },
+    },
+  ]),
+);
+
 const mathTheme = EditorView.baseTheme({
   ".cm-note-math": {
     display: "inline-block",
     verticalAlign: "baseline",
+    cursor: "pointer",
+    borderRadius: "3px",
+  },
+  ".cm-note-math:hover": {
+    backgroundColor: "color-mix(in srgb, var(--accent) 10%, transparent)",
   },
   ".cm-note-math-display": {
     display: "block",
@@ -114,6 +200,7 @@ const mathTheme = EditorView.baseTheme({
   },
 });
 
+/** Field order matters: the decorations field reads the session field. */
 export function mathWidgets() {
-  return [mathDecorationsField, mathTheme];
+  return [mathSessionField, mathDecorationsField, mathKeymap, mathTheme];
 }

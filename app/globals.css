@@ -185,3 +185,79 @@ html.dark .notes-app-background__ascii {
   padding: 0.05em 0.3em;
   white-space: nowrap;
 }
+
+/* ---- Note editor: MathLive fields (structural math editing) ---- */
+.cm-note-mathfield {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.cm-note-mathfield-display {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin: 0.35em 0;
+}
+
+.cm-note-mathfield math-field {
+  --hue: 210;
+  --primary: var(--foreground);
+  --field-border-color: var(--border);
+  --field-border-hover-color: var(--border-strong);
+  --field-focus-border-color: var(--accent);
+  --field-text-color: var(--foreground);
+  --field-background-color: var(--surface);
+  --placeholder-color: var(--muted-foreground);
+  --contains-highlight-background-color: transparent;
+  min-width: 3ch;
+  font-size: 1em; /* html is 20px; keep the field on the note's em scale, not rem */
+  color: var(--foreground);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+}
+
+/* The shadow-DOM container has its own background; the host rule alone loses in dark mode. */
+.cm-note-mathfield math-field::part(container) {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.cm-note-mathfield-display math-field {
+  width: 100%;
+}
+
+.cm-note-mathfield-toggle {
+  font: inherit;
+  font-size: 0.7em;
+  line-height: 1;
+  padding: 0.2em 0.55em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cm-note-mathfield-toggle:hover {
+  color: var(--foreground);
+  border-color: var(--border-strong);
+}
+
+.cm-note-mathfield-source {
+  width: 100%;
+  min-width: 16ch;
+  padding: 0.35em 0.5em;
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
