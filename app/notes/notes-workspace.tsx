@@ -25,7 +25,6 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { NoteSurface } from "@/components/note-editor/note-surface";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 import {
@@ -1370,62 +1369,57 @@ export function NotesWorkspace({
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-                <NoteSurface
-                  initialDocument={selectedNote.content.document}
-                  keepEditingWhenEmpty
-                  selectionPrelude={
-                    <div className="mx-auto w-full px-4 pt-7 md:px-10 md:pt-10">
-                      <input
-                        data-note-selection-region
-                        value={draftTitle}
-                        onChange={(event) => {
-                          const nextTitle = event.currentTarget.value;
-                          setTitleDraftState({
-                            noteId: selectedNote.id,
-                            value: nextTitle,
-                          });
-                          setNotes((current) =>
-                            current.map((n) =>
-                              n.id === selectedNote.id
-                                ? { ...n, title: nextTitle }
-                                : n,
-                            ),
-                          );
-                        }}
-                        onBlur={() => void handleTitleCommit()}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") event.currentTarget.blur();
-                        }}
-                        className="w-full border-none bg-transparent p-0 text-4xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
-                        placeholder="Untitled"
-                      />
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>{formatTimestamp(selectedNote.updatedAt)}</span>
-                        {selectedNote.fileName ? (
-                          <span className="truncate">
-                            {selectedNote.fileName}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  }
-                  onSave={async (nextContent) => {
-                    try {
-                      await saveNote(selectedNote.id, {
-                        title: draftTitle.trim() || "Untitled",
-                        content: nextContent,
+                <div className="mx-auto w-full px-4 pt-7 md:px-10 md:pt-10">
+                  <input
+                    data-note-selection-region
+                    value={draftTitle}
+                    onChange={(event) => {
+                      const nextTitle = event.currentTarget.value;
+                      setTitleDraftState({
+                        noteId: selectedNote.id,
+                        value: nextTitle,
                       });
-                    } catch (saveError) {
-                      toast.error("Could not save note", {
-                        description:
-                          saveError instanceof Error
-                            ? saveError.message
-                            : undefined,
-                        duration: 5000,
-                      });
-                    }
-                  }}
-                />
+                      setNotes((current) =>
+                        current.map((n) =>
+                          n.id === selectedNote.id
+                            ? { ...n, title: nextTitle }
+                            : n,
+                        ),
+                      );
+                    }}
+                    onBlur={() => void handleTitleCommit()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                    className="w-full border-none bg-transparent p-0 text-4xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+                    placeholder="Untitled"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>{formatTimestamp(selectedNote.updatedAt)}</span>
+                    {selectedNote.fileName ? (
+                      <span className="truncate">{selectedNote.fileName}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* SEAM: the note editor was removed and is being rebuilt.
+                    Mount the new editor here. It should receive
+                    `selectedNote.content.document` and persist through
+                    `saveNote(selectedNote.id, { title, content })`. Until
+                    then the stored markdown is shown read-only so note
+                    content stays reachable. */}
+                <div className="mx-auto w-full px-4 pb-10 pt-8 md:px-10">
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    The note editor is being rebuilt. Content is read-only for now.
+                  </p>
+                  {selectedNote.content.markdown.trim() ? (
+                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-border bg-surface-muted p-4 font-mono text-sm text-foreground">
+                      {selectedNote.content.markdown}
+                    </pre>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">This note is empty.</p>
+                  )}
+                </div>
               </div>
             </div>
           ) : (

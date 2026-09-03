@@ -1,4 +1,25 @@
-import type { OutputBlockData, OutputData } from "@editorjs/editorjs";
+/**
+ * Editor-agnostic block/document shape.
+ *
+ * Mirrors what the previous Editor.js integration produced so stored notes
+ * keep parsing, but defined locally so the persistence layer does not depend
+ * on any editor library.
+ */
+export type NoteBlockShape<
+  Type extends string = string,
+  Data extends object = Record<string, unknown>,
+> = {
+  id?: string;
+  type: Type;
+  data: Data;
+  tunes?: Record<string, unknown>;
+};
+
+type NoteDocumentShape = {
+  version?: string;
+  time?: number;
+};
+
 import { z } from "zod";
 
 export type RichTextBlockType = "paragraph" | "header" | "quote";
@@ -72,16 +93,16 @@ export type NoteMathBlockData = {
 export type NoteInlineMathBlockData = NoteMathBlockData;
 
 export type NoteBlock =
-  | OutputBlockData<"paragraph", NoteParagraphBlockData>
-  | OutputBlockData<"header", NoteHeaderBlockData>
-  | OutputBlockData<"list", NoteListBlockData>
-  | OutputBlockData<"quote", NoteQuoteBlockData>
-  | OutputBlockData<"code", NoteCodeBlockData>
-  | OutputBlockData<"image", NoteImageBlockData>
-  | OutputBlockData<"math", NoteMathBlockData>
-  | OutputBlockData<"inlineMath", NoteInlineMathBlockData>;
+  | NoteBlockShape<"paragraph", NoteParagraphBlockData>
+  | NoteBlockShape<"header", NoteHeaderBlockData>
+  | NoteBlockShape<"list", NoteListBlockData>
+  | NoteBlockShape<"quote", NoteQuoteBlockData>
+  | NoteBlockShape<"code", NoteCodeBlockData>
+  | NoteBlockShape<"image", NoteImageBlockData>
+  | NoteBlockShape<"math", NoteMathBlockData>
+  | NoteBlockShape<"inlineMath", NoteInlineMathBlockData>;
 
-export type NoteDocument = Omit<OutputData, "blocks"> & {
+export type NoteDocument = NoteDocumentShape & {
   blocks: NoteBlock[];
 };
 
