@@ -1,6 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note, parseTestCourse, parseTestEvent, parseTestRun } from "@/lib/db/schema";
+import { isClassArchived } from "./archive-marker";
 
 export type UserClassSummary = {
   courseId: string;
@@ -31,6 +32,7 @@ export async function listUserClasses(userId: string): Promise<UserClassSummary[
       meetingTime: parseTestCourse.meetingTime,
       meetingLocation: parseTestCourse.meetingLocation,
       updatedAt: parseTestRun.updatedAt,
+      warnings: parseTestRun.warnings,
     })
     .from(parseTestRun)
     .innerJoin(parseTestCourse, eq(parseTestCourse.runId, parseTestRun.id))
@@ -56,11 +58,22 @@ export async function listUserClasses(userId: string): Promise<UserClassSummary[
     noteCounts.set(row.classId, (noteCounts.get(row.classId) ?? 0) + 1);
   }
 
-  return rows.map((row) => ({
-    ...row,
-    updatedAt: row.updatedAt.toISOString(),
-    noteCount: noteCounts.get(row.courseId) ?? 0,
-  }));
+  return rows
+    .filter((row) => !isClassArchived(row.warnings))
+    .map((row) => ({
+      courseId: row.courseId,
+      runId: row.runId,
+      title: row.title,
+      courseCode: row.courseCode,
+      courseSection: row.courseSection,
+      term: row.term,
+      instructorName: row.instructorName,
+      meetingDays: row.meetingDays,
+      meetingTime: row.meetingTime,
+      meetingLocation: row.meetingLocation,
+      updatedAt: row.updatedAt.toISOString(),
+      noteCount: noteCounts.get(row.courseId) ?? 0,
+    }));
 }
 
 export async function assertClassBelongsToUser(classId: string, userId: string) {

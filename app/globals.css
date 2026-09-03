@@ -74,5 +74,114 @@ html.dark body {
   color-scheme: dark;
 }
 
+.app-background {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.app-ascii-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  contain: paint;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--accent) 36%, var(--muted-foreground));
+  opacity: 0.075;
+  mask-image: radial-gradient(circle at 58% 42%, black 0 42%, transparent 74%);
+}
+
+.app-ascii-bg span {
+  position: absolute;
+  top: -8%;
+  left: -8%;
+  width: 82rem;
+  aspect-ratio: 2485 / 1260;
+  background-image: url("/backgrounds/ascii-art.png");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  filter: invert(1) hue-rotate(180deg) saturate(1.1);
+  transform: translate3d(0, 0, 0);
+  animation: app-ascii-drift 46s linear infinite;
+}
+
+.app-ascii-bg span + span {
+  top: auto;
+  right: -6rem;
+  bottom: -10%;
+  left: auto;
+  opacity: 0.8;
+  animation-name: app-ascii-drift-rotated;
+  animation-duration: 68s;
+  animation-direction: reverse;
+}
+
+.notes-app-background__ascii {
+  z-index: 20;
+  opacity: 0.1;
+  mask-image: linear-gradient(
+    115deg,
+    transparent 0%,
+    black 18%,
+    black 82%,
+    transparent 100%
+  );
+}
+
+.notes-app-background__ascii span {
+  top: -4%;
+  left: -3%;
+  width: min(92rem, 92vw);
+}
+
+.notes-app-background__ascii span + span {
+  right: -10rem;
+  bottom: -8%;
+  width: min(82rem, 82vw);
+}
+
+html.dark .notes-app-background__ascii {
+  color: color-mix(in srgb, var(--accent) 72%, var(--muted-foreground));
+}
+
+@keyframes app-ascii-drift {
+  from {
+    transform: translate3d(-2rem, -1rem, 0);
+  }
+
+  to {
+    transform: translate3d(7rem, 3rem, 0);
+  }
+}
+
+@keyframes app-ascii-drift-rotated {
+  from {
+    transform: translate3d(2rem, 1rem, 0);
+  }
+
+  to {
+    transform: translate3d(-7rem, -3rem, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-ascii-bg span {
+    animation: none;
+  }
+}
+
 @media (min-width: 768px) {
+}
+
+/* ---- Inline math spans ---- */
+.note-inline-math {
+  display: inline;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.9em;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: 3px;
+  padding: 0.05em 0.3em;
+  white-space: nowrap;
 }

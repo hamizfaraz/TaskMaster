@@ -86,7 +86,7 @@ describe("serializeNoteDocumentToMarkdown", () => {
     );
   });
 
-  it("serializes quotes, code, images, and math blocks", () => {
+  it("serializes quotes, code, Mermaid, images, and math blocks", () => {
     const document: NoteDocument = {
       time: 1,
       blocks: [
@@ -101,6 +101,12 @@ describe("serializeNoteDocumentToMarkdown", () => {
           type: "code",
           data: {
             code: 'console.log("hello");',
+          },
+        },
+        {
+          type: "mermaid",
+          data: {
+            code: "graph TD\n  A --> B",
           },
         },
         {
@@ -132,6 +138,11 @@ describe("serializeNoteDocumentToMarkdown", () => {
         "",
         "```",
         'console.log("hello");',
+        "```",
+        "",
+        "```mermaid",
+        "graph TD",
+        "  A --> B",
         "```",
         "",
         "![Chart one](https://example.com/chart.png)",

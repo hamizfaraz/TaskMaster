@@ -29,6 +29,7 @@ export type NoteBlockType =
   | "list"
   | "quote"
   | "code"
+  | "mermaid"
   | "image"
   | "math"
   | "inlineMath";
@@ -73,6 +74,11 @@ export type NoteCodeBlockData = {
   language?: string;
 };
 
+export type NoteMermaidBlockData = {
+  code: string;
+  sourceCollapsed?: boolean;
+};
+
 export type NoteImageFileData = {
   url: string;
   [key: string]: unknown;
@@ -99,6 +105,7 @@ export type NoteBlock =
   | NoteBlockShape<"quote", NoteQuoteBlockData>
   | NoteBlockShape<"code", NoteCodeBlockData>
   | NoteBlockShape<"image", NoteImageBlockData>
+  | NoteBlockShape<"mermaid", NoteMermaidBlockData>
   | NoteBlockShape<"math", NoteMathBlockData>
   | NoteBlockShape<"inlineMath", NoteInlineMathBlockData>;
 
@@ -186,6 +193,16 @@ const codeBlockSchema = z.object({
   tunes: z.record(z.string(), z.unknown()).optional(),
 });
 
+const mermaidBlockSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("mermaid"),
+  data: z.object({
+    code: z.string(),
+    sourceCollapsed: z.boolean().optional(),
+  }),
+  tunes: z.record(z.string(), z.unknown()).optional(),
+});
+
 const imageBlockSchema = z.object({
   id: z.string().optional(),
   type: z.literal("image"),
@@ -225,6 +242,7 @@ export const NoteBlockSchema = z.discriminatedUnion("type", [
   listBlockSchema,
   quoteBlockSchema,
   codeBlockSchema,
+  mermaidBlockSchema,
   imageBlockSchema,
   mathBlockSchema,
   inlineMathBlockSchema,
