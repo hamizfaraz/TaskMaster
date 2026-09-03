@@ -209,4 +209,49 @@ describe("serializeNoteDocumentToMarkdown", () => {
 
     expect(serializeNoteDocumentToMarkdown(document)).toBe("Use $\\sqrt{x^2}$ here.");
   });
+
+  it("keeps punctuation attached to inline math instead of inserting a space", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        { type: "paragraph", data: { text: "Values: (" } },
+        { type: "inlineMath", data: { latex: "a" } },
+        { type: "paragraph", data: { text: "," } },
+        { type: "inlineMath", data: { latex: "b" } },
+        { type: "paragraph", data: { text: ") and" } },
+        { type: "inlineMath", data: { latex: "c" } },
+        { type: "paragraph", data: { text: "." } },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe("Values: ($a$, $b$) and $c$.");
+  });
+
+  it("serializes GFM tables with alignment and escaped pipes", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        {
+          type: "table",
+          data: {
+            rows: [
+              ["Symbol", "Meaning", "Note"],
+              ["$\\pi$", "circle ratio", "a | b"],
+              ["$e$", "Euler", ""],
+            ],
+            align: [null, "center", "right"],
+          },
+        },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe(
+      [
+        "| Symbol | Meaning | Note |",
+        "| --- | :-: | --: |",
+        "| $\\pi$ | circle ratio | a \\| b |",
+        "| $e$ | Euler |  |",
+      ].join("\n"),
+    );
+  });
 });

@@ -1,6 +1,13 @@
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
-import type { NoteBlock, NoteContent, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
+import type {
+  NoteBlock,
+  NoteContent,
+  NoteDocument,
+  NoteListBlockData,
+  NoteListItem,
+  NoteTableAlignment,
+} from "@/lib/notes/types";
 
 // Re-export the canonical parser from its own module.
 export { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
@@ -66,6 +73,23 @@ function restoreInlineMath(html: string): string {
     /<span[^>]*class="note-inline-math"[^>]*data-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi,
     (_, latex: string) => `$${latex}$`,
   );
+}
+
+function serializeTableCell(value: string) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+function serializeTableAlignment(alignment: NoteTableAlignment | undefined) {
+  switch (alignment) {
+    case "left":
+      return ":--";
+    case "center":
+      return ":-:";
+    case "right":
+      return "--:";
+    default:
+      return "---";
+  }
 }
 
 function prefixLines(value: string, prefix: string) {
@@ -136,22 +160,52 @@ function serializeBlock(block: NoteBlock) {
       const imageLine = `![${altText}](${block.data.file.url})`;
       return caption ? `${imageLine}\n\n${caption}` : imageLine;
     }
+    case "table": {
+      const [header = [], ...body] = block.data.rows;
+      const columnCount = Math.max(header.length, ...body.map((row) => row.length), 1);
+      const row = (cells: string[]) =>
+        `| ${Array.from({ length: columnCount }, (_, column) => serializeTableCell(cells[column] ?? "")).join(" | ")} |`;
+      const delimiter = `| ${Array.from({ length: columnCount }, (_, column) =>
+        serializeTableAlignment(block.data.align?.[column]),
+      ).join(" | ")} |`;
+      return [row(header), delimiter, ...body.map(row)].join("\n");
+    }
     case "math":
       return `$$\n${block.data.latex}\n$$`;
     case "inlineMath":
       return `$${block.data.latex}$`;
-    default:
-      return "";
+    default: {
+      // Every NoteBlock must serialize; a new block type that is not handled
+      // here would otherwise vanish from the markdown column silently.
+      const unhandled: never = block;
+      throw new Error(`Unhandled note block type: ${String((unhandled as NoteBlock).type)}`);
+    }
   }
 }
 
-function getBlockSeparator(previous: NoteBlock | undefined, current: NoteBlock) {
+/** Characters that must hug the preceding inline math (`$x$.` not `$x$ .`). */
+const CLOSING_PUNCTUATION_RE = /^[.,;:!?)\]}]/;
+/** Characters that must hug the following inline math (`($x$` not `( $x$`). */
+const OPENING_PUNCTUATION_RE = /[(\[{]$/;
+
+function getBlockSeparator(
+  previous: NoteBlock | undefined,
+  current: NoteBlock,
+  previousText: string,
+  currentText: string,
+) {
   if (
     previous &&
     (previous.type === "inlineMath" || current.type === "inlineMath") &&
     (previous.type === "paragraph" || previous.type === "inlineMath") &&
     (current.type === "paragraph" || current.type === "inlineMath")
   ) {
+    if (previous.type === "inlineMath" && CLOSING_PUNCTUATION_RE.test(currentText)) {
+      return "";
+    }
+    if (current.type === "inlineMath" && OPENING_PUNCTUATION_RE.test(previousText)) {
+      return "";
+    }
     return " ";
   }
 
@@ -161,6 +215,7 @@ function getBlockSeparator(previous: NoteBlock | undefined, current: NoteBlock) 
 export function serializeNoteDocumentToMarkdown(document: NoteDocument) {
   const sections: string[] = [];
   let previousSerializedBlock: NoteBlock | undefined;
+  let previousSerializedText = "";
 
   for (const block of document.blocks) {
     const serialized = serializeBlock(block);
@@ -169,11 +224,14 @@ export function serializeNoteDocumentToMarkdown(document: NoteDocument) {
     }
 
     if (sections.length > 0) {
-      sections.push(getBlockSeparator(previousSerializedBlock, block));
+      sections.push(
+        getBlockSeparator(previousSerializedBlock, block, previousSerializedText, serialized),
+      );
     }
 
     sections.push(serialized);
     previousSerializedBlock = block;
+    previousSerializedText = serialized;
   }
 
   return sections.join("");

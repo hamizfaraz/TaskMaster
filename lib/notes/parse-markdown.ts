@@ -14,7 +14,13 @@
  *   - Paragraphs (everything else)
  */
 
-import type { NoteBlock, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
+import type {
+  NoteBlock,
+  NoteDocument,
+  NoteListBlockData,
+  NoteListItem,
+  NoteTableAlignment,
+} from "@/lib/notes/types";
 import { normalizeLatex } from "@/lib/math/latex";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 
@@ -133,6 +139,60 @@ function isBlockStartLine(line: string) {
 
 function normalizeFenceLanguage(language: string | undefined) {
   return (language ?? "").trim().toLowerCase().replace(/^language-/, "");
+}
+
+// ---------------------------------------------------------------------------
+// GFM tables
+// ---------------------------------------------------------------------------
+
+const TABLE_DELIMITER_CELL_RE = /^:?-+:?$/;
+
+/** Split a GFM table row into trimmed cells, honouring `\|` escapes. */
+function splitTableRow(line: string): string[] {
+  let body = line.trim();
+  if (body.startsWith("|")) body = body.slice(1);
+  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+
+  const cells: string[] = [];
+  let current = "";
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === "\\" && body[index + 1] === "|") {
+      current += "|";
+      index += 1;
+    } else if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseTableDelimiterRow(line: string): NoteTableAlignment[] | null {
+  if (!line.includes("-")) return null;
+  const cells = splitTableRow(line);
+  if (cells.length === 0 || !cells.every((cell) => TABLE_DELIMITER_CELL_RE.test(cell))) {
+    return null;
+  }
+
+  return cells.map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
+/** A table starts at `index` when a `|` row is followed by a delimiter row. */
+function isTableStart(lines: string[], index: number) {
+  const header = lines[index] ?? "";
+  const delimiter = lines[index + 1];
+  return header.includes("|") && delimiter !== undefined && parseTableDelimiterRow(delimiter) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +315,35 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
       continue;
     }
 
+    // ---- GFM table (header row + delimiter row + body rows) ----
+    if (isTableStart(lines, i)) {
+      const headerCells = splitTableRow(line);
+      const align = parseTableDelimiterRow(lines[i + 1] ?? "") ?? [];
+      const columnCount = Math.max(headerCells.length, align.length);
+      const fit = (cells: string[]) =>
+        Array.from({ length: columnCount }, (_, column) => cells[column] ?? "");
+      const rows: string[][] = [fit(headerCells)];
+      i += 2;
+
+      while (i < lines.length) {
+        const rowLine = lines[i] ?? "";
+        if (rowLine.trim() === "" || !rowLine.includes("|") || isBlockStartLine(rowLine)) {
+          break;
+        }
+        rows.push(fit(splitTableRow(rowLine)));
+        i++;
+      }
+
+      blocks.push({
+        type: "table",
+        data: {
+          rows,
+          align: Array.from({ length: columnCount }, (_, column) => align[column] ?? null),
+        },
+      });
+      continue;
+    }
+
     // ---- Empty line ----
     if (line.trim() === "") {
       i++;
@@ -263,7 +352,7 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
 
     // ---- Paragraph — accumulate until next block-starting line ----
     const paragraphLines: string[] = [];
-    while (i < lines.length && !isBlockStartLine(lines[i] ?? "")) {
+    while (i < lines.length && !isBlockStartLine(lines[i] ?? "") && !isTableStart(lines, i)) {
       paragraphLines.push(lines[i] ?? "");
       i++;
     }

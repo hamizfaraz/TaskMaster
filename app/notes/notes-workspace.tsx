@@ -35,8 +35,6 @@ import {
   type NoteRecord,
   type WorkspaceNote,
 } from "@/lib/notes/records";
-import { emptyNoteDocument, type NoteContent } from "@/lib/notes/types";
-import { parseMarkdownToNoteDocument } from "@/lib/notes/markdown";
 
 type WorkspaceClass = {
   id: string;
@@ -318,13 +316,18 @@ export function NotesWorkspace({
     return noteRecordToWorkspaceNote(payload as NoteRecord);
   }
 
-  function mergeNote(nextNote: WorkspaceNote) {
-    setNotes((current) =>
-      sortWorkspaceNotes([
+  function mergeNote(nextNote: WorkspaceNote, options?: { keepPosition?: boolean }) {
+    setNotes((current) => {
+      // Body autosaves would otherwise re-sort by updatedAt and yank the note
+      // being edited to the top of the sidebar on every pause in typing.
+      if (options?.keepPosition && current.some((n) => n.id === nextNote.id)) {
+        return current.map((n) => (n.id === nextNote.id ? nextNote : n));
+      }
+      return sortWorkspaceNotes([
         nextNote,
         ...current.filter((n) => n.id !== nextNote.id),
-      ]),
-    );
+      ]);
+    });
   }
 
   function mergeNotes(nextNotes: WorkspaceNote[]) {
@@ -356,7 +359,7 @@ export function NotesWorkspace({
 
   async function saveNote(
     noteId: string,
-    patch: { title?: string; content?: NoteContent; classId?: string | null },
+    patch: { title?: string; markdown?: string; classId?: string | null },
   ) {
     if (isTempNote(noteId)) return; // creation pending — skip
 
@@ -365,13 +368,13 @@ export function NotesWorkspace({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.content ? { content: patch.content.document } : {}),
+        ...(patch.markdown !== undefined ? { markdown: patch.markdown } : {}),
         ...(patch.classId !== undefined ? { classId: patch.classId } : {}),
       }),
     });
 
     const updatedNote = await readNoteRecord(response);
-    mergeNote(updatedNote);
+    mergeNote(updatedNote, { keepPosition: patch.markdown !== undefined });
     setTitleDraftState((current) =>
       current.noteId === updatedNote.id
         ? { noteId: updatedNote.id, value: updatedNote.title }
@@ -405,7 +408,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: "Untitled",
           classId: classId ?? null,
-          content: { ...emptyNoteDocument, blocks: [] },
+          markdown: "",
         }),
       });
       const created = await readNoteRecord(response);
@@ -500,7 +503,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          content: source.content.document,
+          markdown: source.content.markdown,
         }),
       });
       const created = await readNoteRecord(response);
@@ -597,7 +600,6 @@ export function NotesWorkspace({
 
     try {
       const text = await file.text();
-      const document = parseMarkdownToNoteDocument(text);
       const title = file.name.replace(/\.md$/i, "").trim() || "Imported Note";
 
       const response = await fetch("/api/notes", {
@@ -606,7 +608,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title,
           classId: classId ?? null,
-          content: document,
+          markdown: text,
         }),
       });
 
@@ -753,7 +755,7 @@ export function NotesWorkspace({
             body: JSON.stringify({
               title: temp.title,
               classId: temp.classId,
-              content: source.content.document,
+              markdown: source.content.markdown,
             }),
           });
           const created = await readNoteRecord(response);
@@ -808,7 +810,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          content: source.content.document,
+          markdown: source.content.markdown,
         }),
       });
       const created = await readNoteRecord(response);

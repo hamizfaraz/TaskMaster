@@ -211,7 +211,14 @@ export function noteRecordToWorkspaceNote(record: NoteRecord): WorkspaceNote {
   });
   const embedding = normalizeEmbedding(record.embedding);
   const content = createNoteContent(document);
-  const markdown = typeof record.markdown === "string" ? record.markdown : content.markdown;
+  // The markdown column is canonical. Only fall back to serializing the block
+  // cache when the column is absent, or empty while blocks exist (a row that
+  // predates markdown-on-write would otherwise render as an empty note).
+  const markdown =
+    typeof record.markdown === "string" &&
+    (record.markdown.length > 0 || document.blocks.length === 0)
+      ? record.markdown
+      : content.markdown;
 
   return {
     id: record.id,

@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
-import { normalizeNoteWriteContent } from "@/lib/notes/persistence";
+import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
 
 export const runtime = "nodejs";
 
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { title?: string; content?: unknown; classId?: string | null };
+  let body: { title?: string; content?: unknown; markdown?: unknown; classId?: string | null };
   try {
     body = await req.json();
   } catch {
@@ -84,7 +84,10 @@ export async function POST(req: Request) {
 
   let content: ReturnType<typeof normalizeNoteWriteContent>;
   try {
-    content = normalizeNoteWriteContent(body.content);
+    content =
+      body.markdown !== undefined
+        ? normalizeNoteWriteMarkdown(body.markdown)
+        : normalizeNoteWriteContent(body.content);
   } catch {
     return NextResponse.json(
       { error: "Invalid note content" },

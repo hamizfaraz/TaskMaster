@@ -31,6 +31,7 @@ export type NoteBlockType =
   | "code"
   | "mermaid"
   | "image"
+  | "table"
   | "math"
   | "inlineMath";
 
@@ -92,6 +93,17 @@ export type NoteImageBlockData = {
   stretched: boolean;
 };
 
+export type NoteTableAlignment = "left" | "center" | "right" | null;
+
+/**
+ * GFM table. `rows[0]` is the header row (GFM tables always have one); cells
+ * hold raw inline Markdown so the block round-trips without an HTML detour.
+ */
+export type NoteTableBlockData = {
+  rows: string[][];
+  align?: NoteTableAlignment[];
+};
+
 export type NoteMathBlockData = {
   latex: string;
 };
@@ -106,6 +118,7 @@ export type NoteBlock =
   | NoteBlockShape<"code", NoteCodeBlockData>
   | NoteBlockShape<"image", NoteImageBlockData>
   | NoteBlockShape<"mermaid", NoteMermaidBlockData>
+  | NoteBlockShape<"table", NoteTableBlockData>
   | NoteBlockShape<"math", NoteMathBlockData>
   | NoteBlockShape<"inlineMath", NoteInlineMathBlockData>;
 
@@ -218,6 +231,20 @@ const imageBlockSchema = z.object({
   tunes: z.record(z.string(), z.unknown()).optional(),
 });
 
+const tableBlockSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("table"),
+  data: z.object({
+    rows: z.array(z.array(z.string())).min(1),
+    align: z
+      .array(
+        z.union([z.literal("left"), z.literal("center"), z.literal("right"), z.null()]),
+      )
+      .optional(),
+  }),
+  tunes: z.record(z.string(), z.unknown()).optional(),
+});
+
 const mathBlockSchema = z.object({
   id: z.string().optional(),
   type: z.literal("math"),
@@ -244,6 +271,7 @@ export const NoteBlockSchema = z.discriminatedUnion("type", [
   codeBlockSchema,
   mermaidBlockSchema,
   imageBlockSchema,
+  tableBlockSchema,
   mathBlockSchema,
   inlineMathBlockSchema,
 ]);
