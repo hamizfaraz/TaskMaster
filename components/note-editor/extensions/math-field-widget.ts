@@ -181,6 +181,22 @@ export class MathFieldWidget extends WidgetType {
 
     wrapper.append(field, toggle, source);
 
+    /**
+     * MathLive nulls its keyboard delegate when the element is disconnected,
+     * and its focus() does not guard against that — so a focus call that
+     * races a teardown throws. Never let that reach the editor.
+     */
+    const focusField = () => {
+      if (!field.isConnected) {
+        return;
+      }
+      try {
+        field.focus();
+      } catch {
+        // disposed mid-flight; the session is already closing
+      }
+    };
+
     const currentSession = () => {
       const session = view.state.field(mathSessionField, false) ?? null;
       return session && session.id === this.session.id ? session : null;
@@ -305,7 +321,7 @@ export class MathFieldWidget extends WidgetType {
         source.value = field.value;
         source.focus();
       } else {
-        field.focus();
+        focusField();
       }
     });
 
@@ -322,22 +338,31 @@ export class MathFieldWidget extends WidgetType {
     });
 
     // Clicking elsewhere in the note commits the formula but leaves the
-    // cursor wherever the click put it.
-    wrapper.addEventListener("focusout", (event) => {
-      const next = (event as FocusEvent).relatedTarget;
-      if (next instanceof Node && wrapper.contains(next)) {
-        return;
-      }
-      exit("keep");
+    // cursor wherever the click put it. `relatedTarget` is not usable here:
+    // when MathLive moves focus into its shadow-DOM keyboard sink, Firefox
+    // reports it as null across the shadow boundary, which looked like
+    // "focus left" and tore the field down mid-focus. `document.activeElement`
+    // reports the shadow host, so check that once focus has settled.
+    wrapper.addEventListener("focusout", () => {
+      setTimeout(() => {
+        if (!wrapper.isConnected) {
+          return;
+        }
+        const active = document.activeElement;
+        if (active && wrapper.contains(active)) {
+          return; // still inside: the field's host, the toggle, or the textarea
+        }
+        exit("keep");
+      }, 0);
     });
 
     if (lastFocusedSessionId !== this.session.id) {
       lastFocusedSessionId = this.session.id;
-      requestAnimationFrame(() => {
-        if (wrapper.isConnected) {
-          field.focus();
-        }
-      });
+      // MathLive creates its internals in connectedCallback and announces
+      // them with "mount"; focusing before that is a no-op, after a teardown
+      // it throws. The frame fallback covers a build without the event.
+      field.addEventListener("mount", focusField, { once: true });
+      requestAnimationFrame(focusField);
     }
 
     return wrapper;

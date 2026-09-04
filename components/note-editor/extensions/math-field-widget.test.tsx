@@ -175,4 +175,60 @@ describe("MathFieldWidget bridge", () => {
     expect(field(host)?.value).toBe("\\frac{1}{2}");
     expect(view.state.doc.toString()).toBe("A $\\frac{1}{2}$ B");
   });
+
+  it("does not close the session on a focusout whose relatedTarget is null while focus is still inside", async () => {
+    // Firefox reports relatedTarget as null when MathLive moves focus into
+    // its shadow-DOM sink; that used to tear the field down mid-focus.
+    const { host, view } = mount("A $x$ B");
+    act(() => view.dispatch({ effects: enterMath.of({ from: 2, to: 5 }) }));
+
+    const toggle = host.querySelector<HTMLButtonElement>(".cm-note-mathfield-toggle")!;
+    toggle.focus(); // activeElement is inside the wrapper, as the shadow host would be
+    expect(document.activeElement).toBe(toggle);
+
+    await act(async () => {
+      field(host)!.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.state.field(mathSessionField)).not.toBeNull();
+    expect(field(host)).not.toBeNull();
+  });
+
+  it("closes the session once focus has genuinely moved outside the widget", async () => {
+    const { host, view } = mount("A $x$ B");
+    act(() => view.dispatch({ effects: enterMath.of({ from: 2, to: 5 }) }));
+    act(() => typeIntoField(host, "y"));
+
+    const outside = document.createElement("input");
+    document.body.append(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    await act(async () => {
+      field(host)!.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(view.state.field(mathSessionField)).toBeNull();
+    expect(view.state.doc.toString()).toBe("A $y$ B");
+    outside.remove();
+  });
+
+  it("never throws when the field is disposed before its deferred focus runs", async () => {
+    // Simulate MathLive's disposed state: focus() throws like its
+    // keyboardDelegate being undefined.
+    const { host, view } = mount("A $x$ B");
+    act(() => view.dispatch({ effects: enterMath.of({ from: 2, to: 5 }) }));
+    const element = field(host)! as HTMLElement & { focus: () => void };
+    element.focus = () => {
+      throw new TypeError("can't access property \"focus\", this.keyboardDelegate is undefined");
+    };
+
+    expect(() => {
+      element.dispatchEvent(new Event("mount"));
+      host.querySelector<HTMLButtonElement>(".cm-note-mathfield-toggle")!.click(); // shows source
+      host.querySelector<HTMLButtonElement>(".cm-note-mathfield-toggle")!.click(); // hides it → focusField()
+    }).not.toThrow();
+  });
 });
