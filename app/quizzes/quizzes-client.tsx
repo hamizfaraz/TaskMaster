@@ -98,6 +98,11 @@ function formatTimer(seconds: number) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Rendered on the server and hydrated on the client, whose timezone can
+ * differ; the element showing this carries `suppressHydrationWarning` and
+ * React patches the text on hydration so the user sees their local time.
+ */
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
@@ -813,7 +818,7 @@ export function QuizzesClient({
                         <p className="font-semibold text-foreground">
                           {quiz.title}
                         </p>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
+                        <p className="mt-0.5 text-sm text-muted-foreground" suppressHydrationWarning>
                           Updated {formatDate(quiz.updatedAt)}
                         </p>
                       </div>

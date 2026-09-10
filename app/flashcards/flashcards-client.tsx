@@ -108,8 +108,13 @@ function withCardCount(deck: FlashcardDeck): FlashcardDeck {
   };
 }
 
+/**
+ * Rendered on the server and hydrated on the client, whose timezone can
+ * differ; the element showing this carries `suppressHydrationWarning` and
+ * React patches the text on hydration so the user sees their local time.
+ */
 function formatDeckDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -574,7 +579,7 @@ export function FlashcardsClient({
                             <p className="font-semibold text-foreground">
                               {deck.title}
                             </p>
-                            <p className="mt-0.5 text-sm text-muted-foreground">
+                            <p className="mt-0.5 text-sm text-muted-foreground" suppressHydrationWarning>
                               Updated {formatDeckDate(deck.updatedAt)}
                             </p>
                           </div>
