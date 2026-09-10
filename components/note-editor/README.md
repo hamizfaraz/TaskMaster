@@ -7,6 +7,9 @@ from a block document.
 - `note-editor.tsx` — public `NoteEditor`. Owns the draft, autosave, and the
   save-status pill. Loads the CodeMirror host with `next/dynamic` (`ssr: false`).
 - `markdown-editor.tsx` — the CodeMirror 6 host. DOM-only, no app state.
+- `block-menu.tsx` — the "+ Block" button: a mouse-driven counterpart to the
+  `/` menu that applies the same `slashCommands` at the cursor through the
+  editor's imperative handle.
 - `use-autosave.ts` — debounced, coalescing, single-flight save queue that
   re-queues on failure.
 - `extensions/theme.ts` — editor chrome and Markdown typography on the app's

@@ -75,26 +75,47 @@ function insertInline(snippet: string, cursorOffset: number, onInsert?: (view: E
 
 const openMath = (view: EditorView, from: number, to: number) => openMathRegion(view, { from, to });
 
+/**
+ * Every insertable block type. `type` is a stable id used by the "+ Block"
+ * button for icons; CodeMirror ignores it because the menu runs with
+ * `icons: false`. This one list drives both the `/` menu and the button.
+ */
 export const slashCommands: readonly Completion[] = [
-  { label: "Text", detail: "Plain paragraph", apply: transformLine("") },
-  { label: "Heading 1", detail: "Large section heading", apply: transformLine("# ") },
-  { label: "Heading 2", detail: "Section heading", apply: transformLine("## ") },
-  { label: "Heading 3", detail: "Subsection heading", apply: transformLine("### ") },
-  { label: "Bulleted list", detail: "Unordered list", apply: transformLine("- ") },
-  { label: "Numbered list", detail: "Ordered list", apply: transformLine("1. ") },
-  { label: "Checklist", detail: "Task list", apply: transformLine("- [ ] ") },
-  { label: "Quote", detail: "Block quote", apply: transformLine("> ") },
-  { label: "Code block", detail: "Fenced code", apply: insertBlock("```\n\n```", 4) },
+  { label: "Text", type: "text", detail: "Plain paragraph", apply: transformLine("") },
+  { label: "Heading 1", type: "h1", detail: "Large section heading", apply: transformLine("# ") },
+  { label: "Heading 2", type: "h2", detail: "Section heading", apply: transformLine("## ") },
+  { label: "Heading 3", type: "h3", detail: "Subsection heading", apply: transformLine("### ") },
+  { label: "Bulleted list", type: "bullet", detail: "Unordered list", apply: transformLine("- ") },
+  { label: "Numbered list", type: "number", detail: "Ordered list", apply: transformLine("1. ") },
+  { label: "Checklist", type: "checklist", detail: "Task list", apply: transformLine("- [ ] ") },
+  { label: "Quote", type: "quote", detail: "Block quote", apply: transformLine("> ") },
+  { label: "Code block", type: "code", detail: "Fenced code", apply: insertBlock("```\n\n```", 4) },
   {
     label: "Table",
+    type: "table",
     detail: "2×2 table",
     apply: insertBlock("| Column | Column |\n| --- | --- |\n|  |  |", 2),
   },
-  { label: "Image", detail: "Image from a URL", apply: insertInline("![alt](https://)", 15) },
-  { label: "Divider", detail: "Horizontal rule", apply: insertBlock("---", 3) },
-  { label: "Math block", detail: "Display equation", apply: insertBlock("$$\n\n$$", 3, openMath) },
-  { label: "Inline math", detail: "Formula in the text", apply: insertInline("$$", 1, openMath) },
+  { label: "Image", type: "image", detail: "Image from a URL", apply: insertInline("![alt](https://)", 15) },
+  { label: "Divider", type: "divider", detail: "Horizontal rule", apply: insertBlock("---", 3) },
+  { label: "Math block", type: "math", detail: "Display equation", apply: insertBlock("$$\n\n$$", 3, openMath) },
+  { label: "Inline math", type: "inline-math", detail: "Formula in the text", apply: insertInline("$$", 1, openMath) },
 ];
+
+/**
+ * Apply a block command at the cursor with nothing to replace — what the
+ * "+ Block" button does. Line commands rewrite the current line's marker;
+ * snippet commands break out to a new line when the cursor follows text.
+ */
+export function applyBlockCommand(view: EditorView, command: Completion) {
+  const apply = command.apply;
+  if (typeof apply !== "function") {
+    return;
+  }
+  const head = view.state.selection.main.head;
+  apply(view, command, head, head);
+  view.focus();
+}
 
 // ---------------------------------------------------------------------------
 // Source

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
+import type { Completion } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
@@ -15,14 +16,23 @@ import {
 import { imageDrop, type ImageUploader } from "@/components/note-editor/extensions/image-drop";
 import { livePreview } from "@/components/note-editor/extensions/live-preview";
 import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
-import { slashMenu } from "@/components/note-editor/extensions/slash-menu";
+import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 
 function previewExtensions(sourceMode: boolean) {
   return sourceMode ? [] : [livePreview(), mathWidgets()];
 }
 
+/** What React-side controls (the "+ Block" button) may ask the editor to do. */
+export type MarkdownEditorHandle = {
+  focus(): void;
+  /** Insert a block command at the cursor — the same commands the `/` menu offers. */
+  applyCommand(command: Completion): void;
+};
+
 export type MarkdownEditorProps = {
+  /** Receives an imperative handle once the editor is mounted. */
+  editorRef?: Ref<MarkdownEditorHandle>;
   /**
    * The markdown to show. Applied to the document only when it differs from
    * what the editor already holds, so echoing `onChange` back is a no-op and
@@ -45,6 +55,7 @@ export type MarkdownEditorProps = {
  * loaded with `next/dynamic` + `ssr: false` by `NoteEditor`.
  */
 export default function MarkdownEditor({
+  editorRef,
   value,
   onChange,
   readOnly = false,
@@ -61,6 +72,20 @@ export default function MarkdownEditor({
   const previewCompartment = useRef(new Compartment()).current;
   const uploadCompartment = useRef(new Compartment()).current;
   onChangeRef.current = onChange;
+
+  useImperativeHandle(
+    editorRef,
+    () => ({
+      focus: () => viewRef.current?.focus(),
+      applyCommand: (command) => {
+        const view = viewRef.current;
+        if (view) {
+          applyBlockCommand(view, command);
+        }
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     const host = hostRef.current;
