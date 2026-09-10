@@ -59,6 +59,12 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
+/**
+ * Rendered on the server and hydrated on the client, whose timezone can put
+ * the same instant on a different calendar day. The spans that show this
+ * carry `suppressHydrationWarning`, and React patches the text on hydration
+ * so the user always sees their local date.
+ */
 function formatTimestamp(value: string) {
   return TIMESTAMP_FORMATTER.format(new Date(value));
 }
@@ -968,7 +974,7 @@ export function NotesWorkspace({
             {getRenderableTitle(note.title)}
           </span>
           {options?.compact ? null : (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-[11px] text-muted-foreground" suppressHydrationWarning>
               {formatTimestamp(note.updatedAt)}
             </span>
           )}
@@ -1405,7 +1411,7 @@ export function NotesWorkspace({
                     placeholder="Untitled"
                   />
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{formatTimestamp(selectedNote.updatedAt)}</span>
+                    <span suppressHydrationWarning>{formatTimestamp(selectedNote.updatedAt)}</span>
                     {selectedNote.fileName ? (
                       <span className="truncate">{selectedNote.fileName}</span>
                     ) : null}
