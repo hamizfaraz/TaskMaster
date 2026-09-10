@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Code2, Eye, Loader2 } from "lucide-react";
 import { BlockMenu } from "@/components/note-editor/block-menu";
 import type { ImageUploader } from "@/components/note-editor/extensions/image-drop";
-import type { MarkdownEditorHandle } from "@/components/note-editor/markdown-editor";
+import type { ActiveLineRect, MarkdownEditorHandle } from "@/components/note-editor/markdown-editor";
 import { useAutosave, type AutosaveStatus } from "@/components/note-editor/use-autosave";
 import { isTempNoteId } from "@/lib/notes/records";
 import { cx } from "@/lib/utils";
@@ -91,6 +91,7 @@ export function NoteEditor({
   className,
 }: NoteEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
+  const [activeLine, setActiveLine] = useState<ActiveLineRect | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const { status, draft, notifyChange, flush, retry } = useAutosave({
     noteId,
@@ -132,8 +133,7 @@ export function NoteEditor({
 
   return (
     <div className={cx("relative", className)}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        {readOnly ? <span /> : <BlockMenu onPick={(command) => editorRef.current?.applyCommand(command)} />}
+      <div className="mb-2 flex justify-end">
         <button
           type="button"
           onClick={() => setSourceMode((current) => !current)}
@@ -145,15 +145,26 @@ export function NoteEditor({
           {sourceMode ? "Preview" : "Source"}
         </button>
       </div>
-      <MarkdownEditor
-        editorRef={editorRef}
-        value={value}
-        onChange={handleChange}
-        readOnly={readOnly}
-        sourceMode={sourceMode}
-        uploadImage={uploadImage}
-        autoFocus={!readOnly}
-      />
+      {/* Left gutter reserved for the "+" that follows the cursor's line. */}
+      <div className="relative pl-9">
+        {!readOnly && activeLine ? (
+          <BlockMenu
+            top={activeLine.top}
+            height={activeLine.height}
+            onPick={(command) => editorRef.current?.applyCommand(command)}
+          />
+        ) : null}
+        <MarkdownEditor
+          editorRef={editorRef}
+          onActiveLineChange={setActiveLine}
+          value={value}
+          onChange={handleChange}
+          readOnly={readOnly}
+          sourceMode={sourceMode}
+          uploadImage={uploadImage}
+          autoFocus={!readOnly}
+        />
+      </div>
       <SaveStatus status={status} onRetry={() => void retry()} />
     </div>
   );

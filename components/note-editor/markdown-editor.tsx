@@ -30,9 +30,21 @@ export type MarkdownEditorHandle = {
   applyCommand(command: Completion): void;
 };
 
+/** Where the cursor's line sits, relative to the editor host's top edge. */
+export type ActiveLineRect = {
+  top: number;
+  height: number;
+};
+
 export type MarkdownEditorProps = {
   /** Receives an imperative handle once the editor is mounted. */
   editorRef?: Ref<MarkdownEditorHandle>;
+  /**
+   * Reports the active line's position whenever it moves, or `null` when it
+   * cannot be measured (off-screen, or replaced by a block widget). Lets a
+   * React-side gutter control follow the cursor.
+   */
+  onActiveLineChange?: (rect: ActiveLineRect | null) => void;
   /**
    * The markdown to show. Applied to the document only when it differs from
    * what the editor already holds, so echoing `onChange` back is a no-op and
@@ -56,6 +68,7 @@ export type MarkdownEditorProps = {
  */
 export default function MarkdownEditor({
   editorRef,
+  onActiveLineChange,
   value,
   onChange,
   readOnly = false,
@@ -71,7 +84,41 @@ export default function MarkdownEditor({
   const readOnlyCompartment = useRef(new Compartment()).current;
   const previewCompartment = useRef(new Compartment()).current;
   const uploadCompartment = useRef(new Compartment()).current;
+  const onActiveLineChangeRef = useRef(onActiveLineChange);
+  const lastActiveLineKeyRef = useRef("");
   onChangeRef.current = onChange;
+  onActiveLineChangeRef.current = onActiveLineChange;
+
+  /**
+   * Measure through CodeMirror's read/write cycle so layout is read once the
+   * DOM is settled, and only report when the position actually changed.
+   */
+  const measureActiveLine = (view: EditorView) => {
+    const host = hostRef.current;
+    if (!host || !onActiveLineChangeRef.current) {
+      return;
+    }
+    view.requestMeasure<ActiveLineRect | null>({
+      key: "active-line",
+      read: (measured) => {
+        const line = measured.state.doc.lineAt(measured.state.selection.main.head);
+        const coords = measured.coordsAtPos(line.from, 1);
+        if (!coords) {
+          return null;
+        }
+        const hostTop = host.getBoundingClientRect().top;
+        return { top: coords.top - hostTop, height: coords.bottom - coords.top };
+      },
+      write: (rect) => {
+        const key = rect ? `${Math.round(rect.top)}:${Math.round(rect.height)}` : "none";
+        if (key === lastActiveLineKeyRef.current) {
+          return;
+        }
+        lastActiveLineKeyRef.current = key;
+        onActiveLineChangeRef.current?.(rect);
+      },
+    });
+  };
 
   useImperativeHandle(
     editorRef,
@@ -115,12 +162,21 @@ export default function MarkdownEditor({
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
             }
+            if (
+              update.selectionSet ||
+              update.docChanged ||
+              update.geometryChanged ||
+              update.viewportChanged
+            ) {
+              measureActiveLine(update.view);
+            }
           }),
         ],
       }),
     });
 
     viewRef.current = view;
+    measureActiveLine(view);
     if (autoFocus) {
       view.focus();
     }

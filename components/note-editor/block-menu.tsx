@@ -39,18 +39,24 @@ const ICONS: Record<string, LucideIcon> = {
   "inline-math": Sigma,
 };
 
+/** Diameter of the gutter button, used to centre it on the line. */
+const BUTTON_SIZE = 24;
+
 export type BlockMenuProps = {
+  /** Top of the active line, relative to the editor host. */
+  top: number;
+  /** Height of the active line. */
+  height: number;
   /** Called with the chosen command; the caller applies it to the editor. */
   onPick: (command: Completion) => void;
-  disabled?: boolean;
 };
 
 /**
- * Mouse-driven counterpart to the `/` menu: a "+ Block" button listing every
- * block type. Both surfaces read the same `slashCommands` list, so they can
- * never offer different things.
+ * The "+" that sits in the left gutter beside the line the cursor is on —
+ * the mouse-driven counterpart to the `/` menu. Both read the same
+ * `slashCommands` list, so they can never offer different things.
  */
-export function BlockMenu({ onPick, disabled = false }: BlockMenuProps) {
+export function BlockMenu({ top, height, onPick }: BlockMenuProps) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -92,19 +98,23 @@ export function BlockMenu({ onPick, disabled = false }: BlockMenuProps) {
   };
 
   return (
-    <div className="relative" onKeyDown={handleKeyDown}>
+    <div
+      className="absolute left-0 z-20"
+      style={{ top: Math.max(0, top + (height - BUTTON_SIZE) / 2) }}
+      onKeyDown={handleKeyDown}
+    >
       <button
         type="button"
         onClick={toggle}
-        disabled={disabled}
+        onMouseDown={(event) => event.preventDefault()} // keep the editor's selection where it is
+        aria-label="Insert block"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        title="Insert a block at the cursor"
-        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 text-xs text-muted-foreground transition hover:border-border-strong hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+        title="Insert a block here"
+        className="flex size-6 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground transition hover:border-border-strong hover:bg-surface-elevated hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
       >
-        <Plus className="size-3.5" />
-        Block
+        <Plus className="size-3.5" aria-hidden="true" />
       </button>
 
       {open ? (
@@ -114,7 +124,7 @@ export function BlockMenu({ onPick, disabled = false }: BlockMenuProps) {
             id={menuId}
             role="menu"
             aria-label="Insert block"
-            className="absolute left-0 top-9 z-[50] min-w-[15rem] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-elevated py-1 shadow-[var(--shadow-card)]"
+            className="absolute left-7 top-0 z-[50] max-h-[70vh] min-w-[15rem] overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-surface-elevated py-1 shadow-[var(--shadow-card)]"
           >
             {slashCommands.map((command, index) => {
               const Icon = ICONS[command.type ?? ""] ?? Plus;
