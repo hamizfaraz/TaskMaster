@@ -181,4 +181,77 @@ describe("serializeNoteDocumentToMarkdown", () => {
       "Second block moved first\n\nFirst block moved second",
     );
   });
+
+  it("serializes inline math blocks with adjacent text as one inline sentence", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        {
+          type: "paragraph",
+          data: {
+            text: "Use",
+          },
+        },
+        {
+          type: "inlineMath",
+          data: {
+            latex: "\\sqrt{x^2}",
+          },
+        },
+        {
+          type: "paragraph",
+          data: {
+            text: "here.",
+          },
+        },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe("Use $\\sqrt{x^2}$ here.");
+  });
+
+  it("keeps punctuation attached to inline math instead of inserting a space", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        { type: "paragraph", data: { text: "Values: (" } },
+        { type: "inlineMath", data: { latex: "a" } },
+        { type: "paragraph", data: { text: "," } },
+        { type: "inlineMath", data: { latex: "b" } },
+        { type: "paragraph", data: { text: ") and" } },
+        { type: "inlineMath", data: { latex: "c" } },
+        { type: "paragraph", data: { text: "." } },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe("Values: ($a$, $b$) and $c$.");
+  });
+
+  it("serializes GFM tables with alignment and escaped pipes", () => {
+    const document: NoteDocument = {
+      time: 1,
+      blocks: [
+        {
+          type: "table",
+          data: {
+            rows: [
+              ["Symbol", "Meaning", "Note"],
+              ["$\\pi$", "circle ratio", "a | b"],
+              ["$e$", "Euler", ""],
+            ],
+            align: [null, "center", "right"],
+          },
+        },
+      ],
+    };
+
+    expect(serializeNoteDocumentToMarkdown(document)).toBe(
+      [
+        "| Symbol | Meaning | Note |",
+        "| --- | :-: | --: |",
+        "| $\\pi$ | circle ratio | a \\| b |",
+        "| $e$ | Euler |  |",
+      ].join("\n"),
+    );
+  });
 });

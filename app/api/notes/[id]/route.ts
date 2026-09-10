@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
-import { normalizeNoteWriteContent } from "@/lib/notes/persistence";
+import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
 
 export const runtime = "nodejs";
 
@@ -50,7 +50,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     return NextResponse.json({ error: "Note not found" }, { status: 404 });
   }
 
-  let body: { title?: string; content?: unknown; classId?: string | null };
+  let body: { title?: string; content?: unknown; markdown?: unknown; classId?: string | null };
   try {
     body = await req.json();
   } catch {
@@ -62,7 +62,16 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
   const updates: Record<string, unknown> = {};
   if (typeof body.title === "string") updates.title = body.title.trim() || "Untitled";
-  if (body.content !== undefined) {
+  if (body.markdown !== undefined) {
+    // Canonical path: markdown is stored as authored; blocks are derived.
+    try {
+      const content = normalizeNoteWriteMarkdown(body.markdown);
+      updates.content = content.document;
+      updates.markdown = content.markdown;
+    } catch {
+      return NextResponse.json({ error: "Invalid note markdown" }, { status: 400 });
+    }
+  } else if (body.content !== undefined) {
     try {
       const content = normalizeNoteWriteContent(body.content);
       updates.content = content.document;

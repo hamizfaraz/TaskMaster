@@ -65,6 +65,34 @@ describe("noteRecordToWorkspaceNote", () => {
     expect(note.content.markdown).toContain("- **Logical view:** Shows abstractions.");
   });
 
+  it("prefers the markdown column, but falls back to the block cache when it is empty", () => {
+    const blocks = [{ type: "paragraph" as const, data: { text: "From blocks" } }];
+
+    const stored = noteRecordToWorkspaceNote({
+      ...baseRecord,
+      sourceType: "manual",
+      markdown: "# Column wins",
+      content: { time: 1, blocks },
+    });
+    expect(stored.content.markdown).toBe("# Column wins");
+
+    const legacy = noteRecordToWorkspaceNote({
+      ...baseRecord,
+      sourceType: "manual",
+      markdown: "",
+      content: { time: 1, blocks },
+    });
+    expect(legacy.content.markdown).toBe("From blocks");
+
+    const empty = noteRecordToWorkspaceNote({
+      ...baseRecord,
+      sourceType: "manual",
+      markdown: "",
+      content: { time: 1, blocks: [] },
+    });
+    expect(empty.content.markdown).toBe("");
+  });
+
   it("leaves manual notes with literal markdown markers alone", () => {
     const note = noteRecordToWorkspaceNote({
       ...baseRecord,

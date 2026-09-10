@@ -1,0 +1,8 @@
+allowBuilds:
+  # Native/binary postinstalls that are genuinely required:
+  esbuild: true        # vitest + tsx need the platform binary
+  sharp: true          # next/image optimization
+  unrs-resolver: true  # eslint-config-next resolver napi bindings
+  # Not required for dev, test, lint, or build:
+  msw: false           # postinstall only copies the browser service worker
+  protobufjs: false    # postinstall is for its codegen CLI
