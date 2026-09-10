@@ -93,23 +93,27 @@ export function NoteEditor({
   const [sourceMode, setSourceMode] = useState(false);
   const [activeLine, setActiveLine] = useState<ActiveLineRect | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
-  const { status, draft, notifyChange, flush, retry } = useAutosave({
+  const { status, draft, latest, notifyChange, flush, retry } = useAutosave({
     noteId,
     onSave,
     enabled: saveEnabled && !readOnly,
   });
 
-  // A temp note being promoted to its real id arrives with empty markdown;
-  // keep what the user typed rather than replacing it (the autosave hook
-  // retargets and persists it). Everything else derives from props.
-  const promoted =
+  // What the editor should hold, in order of trust: the newest text this
+  // session typed into this note (a switch-back must never remount from the
+  // workspace's stale copy while a save is in flight); the text typed into
+  // the temp note this one was just promoted from (it arrives with empty
+  // markdown and the hook is still retargeting); otherwise the server state.
+  const promotedFrom =
     draft !== null &&
     draft.noteId !== noteId &&
     isTempNoteId(draft.noteId) &&
     !isTempNoteId(noteId) &&
-    initialMarkdown === "";
+    initialMarkdown === ""
+      ? draft.noteId
+      : null;
   const value =
-    draft !== null && (draft.noteId === noteId || promoted) ? draft.markdown : initialMarkdown;
+    latest[noteId] ?? (promotedFrom !== null ? latest[promotedFrom] : undefined) ?? initialMarkdown;
 
   // Switching to a different note: persist whatever the previous note still
   // had queued before its content leaves the editor.

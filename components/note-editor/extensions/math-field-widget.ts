@@ -93,6 +93,42 @@ export const mathSessionField = StateField.define<MathSession | null>({
 
 let lastFocusedSessionId = 0;
 
+/**
+ * The offset range of the compound element (fraction, root, integral with
+ * limits, matrix, …) that ends right before the caret, or null when the
+ * caret is not directly after one.
+ *
+ * MathLive numbers atoms depth-first with children *before* their parent,
+ * so the element before the caret is compound exactly when the offset before
+ * the caret is deeper than the caret's own, and its subtree runs back to the
+ * previous offset at the caret's depth. Selecting only `[position - 1,
+ * position]` — what Shift+Left does — covers the parent atom without its
+ * children, and MathLive deletes nothing for such a range.
+ */
+export function compoundElementBefore(
+  field: Pick<MathfieldElement, "getElementInfo" | "selection" | "position">,
+): [number, number] | null {
+  if (typeof field.getElementInfo !== "function" || !field.selection?.ranges?.[0]) {
+    return null; // not a real MathLive element (tests)
+  }
+  const [start, end] = field.selection.ranges[0];
+  const position = field.position;
+  if (start !== end || position <= 0) {
+    return null;
+  }
+  const depthAt = (offset: number) => field.getElementInfo(offset)?.depth;
+  const depth = depthAt(position);
+  const previousDepth = depthAt(position - 1);
+  if (depth === undefined || previousDepth === undefined || previousDepth <= depth) {
+    return null;
+  }
+  let from = position - 1;
+  while (from > 0 && (depthAt(from) ?? -1) > depth) {
+    from -= 1;
+  }
+  return [from, position];
+}
+
 const STOP_PROPAGATION_EVENTS = ["beforeinput", "keyup", "pointerdown", "mousedown", "click"] as const;
 
 /**
@@ -286,6 +322,37 @@ export class MathFieldWidget extends WidgetType {
     for (const type of STOP_PROPAGATION_EVENTS) {
       wrapper.addEventListener(type, (event) => event.stopPropagation());
     }
+
+    // NE-8: MathLive's own Backspace steps *into* a fraction, root, or any
+    // other compound element; the requirement is to remove it whole. A
+    // capture listener on the host runs before MathLive's shadow-DOM handler,
+    // so the element can be selected as a unit and deleted instead. A simple
+    // atom, the start of a branch, or an existing selection keeps MathLive's
+    // behaviour.
+    field.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key !== "Backspace" || event.ctrlKey || event.metaKey || event.altKey) {
+          return;
+        }
+        // Backspace in an empty field removes the field, delimiters included.
+        if (field.value.trim() === "") {
+          event.preventDefault();
+          event.stopPropagation();
+          exit("before");
+          return;
+        }
+        const range = compoundElementBefore(field);
+        if (!range) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        field.selection = { ranges: [range] };
+        field.executeCommand("deleteBackward");
+      },
+      { capture: true },
+    );
 
     field.addEventListener("input", () => {
       writeToDocument(field.value);

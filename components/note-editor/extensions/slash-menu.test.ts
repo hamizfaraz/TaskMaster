@@ -19,7 +19,7 @@ function run(doc: string, label: string, pos = doc.length) {
   if (!result) {
     throw new Error("slash menu did not open");
   }
-  const command = slashCommands.find((option) => option.label === label)!;
+  const command = slashCommands.find((option) => option.displayLabel === label)!;
   const apply = command.apply as (view: EditorView, c: typeof command, from: number, to: number) => void;
   apply(view, command, result.from, pos);
   const out = { doc: view.state.doc.toString(), cursor: view.state.selection.main.head };
@@ -41,7 +41,7 @@ describe("slashSource", () => {
   });
 
   it("offers every block type from the requirements", () => {
-    const labels = slashCommands.map((command) => command.label);
+    const labels = slashCommands.map((command) => command.displayLabel);
     for (const expected of [
       "Text", "Heading 1", "Heading 2", "Heading 3", "Bulleted list", "Numbered list",
       "Checklist", "Quote", "Code block", "Table", "Image", "Divider", "Math block", "Inline math",

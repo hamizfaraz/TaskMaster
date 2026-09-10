@@ -176,7 +176,7 @@ export function BlockMenu({ top, height, onPick }: BlockMenuProps) {
                   className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm text-foreground hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none"
                 >
                   <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <span className="flex-1">{command.label}</span>
+                  <span className="flex-1">{command.displayLabel ?? command.label}</span>
                   {command.detail ? (
                     <span className="text-xs text-muted-foreground">{command.detail}</span>
                   ) : null}

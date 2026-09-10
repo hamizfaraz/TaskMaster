@@ -7,7 +7,7 @@ vi.mock("@/components/note-editor/extensions/mathlive-loader", () => ({
   loadMathLive: () => Promise.resolve(),
 }));
 
-import { enterMath, mathSessionField } from "@/components/note-editor/extensions/math-field-widget";
+import { enterMath, mathSessionField, compoundElementBefore } from "@/components/note-editor/extensions/math-field-widget";
 import MarkdownEditor from "@/components/note-editor/markdown-editor";
 
 /** Enough of MathLive's element for the bridge: a value, setValue, focus, and events. */
@@ -230,5 +230,35 @@ describe("MathFieldWidget bridge", () => {
       host.querySelector<HTMLButtonElement>(".cm-note-mathfield-toggle")!.click(); // shows source
       host.querySelector<HTMLButtonElement>(".cm-note-mathfield-toggle")!.click(); // hides it → focusField()
     }).not.toThrow();
+  });
+});
+
+describe("compoundElementBefore (NE-8)", () => {
+  // Depth per offset, as MathLive's getElementInfo reports it: children come
+  // before their parent, so a fraction at the root reads 0 1 1 1 1 0.
+  const field = (depths: number[], position: number, selected = false) => ({
+    getElementInfo: (offset: number) =>
+      offset < 0 || offset >= depths.length ? undefined : { depth: depths[offset] },
+    selection: { ranges: [[selected ? position - 1 : position, position] as [number, number]] },
+    position,
+  });
+
+  it("spans the whole subtree of the element before the caret", () => {
+    expect(compoundElementBefore(field([0, 1, 1, 1, 1, 0], 5))).toEqual([0, 5]); // \frac{a}{b}
+    expect(compoundElementBefore(field([0, 0, 0, 1, 1, 1, 1, 0], 7))).toEqual([2, 7]); // a+\frac{a}{b}
+    expect(compoundElementBefore(field([0, 0, 1, 1, 0], 4))).toEqual([1, 4]); // x^2 → just the ^2
+    expect(compoundElementBefore(field([0, 1, 2, 2, 2, 2, 1, 1, 1, 0], 9))).toEqual([0, 9]); // nested fractions
+  });
+
+  it("leaves simple atoms, branch starts, selections, and the origin to MathLive", () => {
+    expect(compoundElementBefore(field([0, 1, 1, 1, 1, 0, 0, 0], 7))).toBeNull(); // \frac{a}{b}+c, after c
+    expect(compoundElementBefore(field([0, 1, 1, 1, 1, 0], 3))).toBeNull(); // start of the denominator
+    expect(compoundElementBefore(field([0, 1, 1, 1, 1, 0], 1))).toBeNull(); // start of the numerator
+    expect(compoundElementBefore(field([0, 1, 1, 1, 1, 0], 5, true))).toBeNull(); // a selection
+    expect(compoundElementBefore(field([0], 0))).toBeNull();
+  });
+
+  it("is inert on an element without MathLive's API", () => {
+    expect(compoundElementBefore({} as never)).toBeNull();
   });
 });

@@ -172,7 +172,7 @@ least match, plus what NE-1–NE-8 add:
 | NE-5 | `/Math block` → `$$\n…\n$$`, `/Inline math` → `$…$`, both open the field immediately | |
 | NE-6 | `extensions/live-preview.ts`, `extensions/math-widgets.ts`; Source/Preview toggle in `note-editor.tsx` | CodeMirror 6, which is what Obsidian is built on. Syntax hides off the active line; math renders with KaTeX. |
 | NE-7 | `extensions/math-field-widget.ts` | MathLive field replaces the formula; the **LaTeX** button exposes a synchronized source textarea; `normalizeLatex` runs on exit. |
-| NE-8 | MathLive owns the keyboard while a field is focused | Backspace deletes a fraction or root as a unit. |
+| NE-8 | `compoundElementBefore` in `extensions/math-field-widget.ts`: a capture-phase Backspace handler on the field | MathLive's own Backspace steps *into* a fraction. The handler walks `getElementInfo` depths to find the compound element before the caret, selects its whole subtree, and deletes it — a fraction, root, exponent, integral with limits, or matrix goes as a unit. Inside a branch, or after a plain symbol, MathLive's behaviour applies. |
 | NE-9 | `use-autosave.ts`; one undo step per math session; `Mod-e` opens math; dark mode via tokens | Coalescing autosave with retry and a visible status pill; failed saves re-queue instead of dropping. |
 
 ### Verify by hand (`pnpm dev` → `/notes`)

@@ -66,7 +66,7 @@ describe("BlockMenu (gutter)", () => {
 
     const items = screen.getAllByRole("menuitem");
     expect(items.map((item) => item.textContent)).toEqual(
-      slashCommands.map((command) => `${command.label}${command.detail ?? ""}`),
+      slashCommands.map((command) => `${command.displayLabel}${command.detail ?? ""}`),
     );
 
     await user.keyboard("{Escape}");

@@ -5,7 +5,7 @@ import type { Completion } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -36,6 +36,9 @@ export type ActiveLineRect = {
   height: number;
 };
 
+/** Marks a document replacement driven by the `value` prop, not by typing. */
+const externalValue = Annotation.define<boolean>();
+
 export type MarkdownEditorProps = {
   /** Receives an imperative handle once the editor is mounted. */
   editorRef?: Ref<MarkdownEditorHandle>;
@@ -47,8 +50,9 @@ export type MarkdownEditorProps = {
   onActiveLineChange?: (rect: ActiveLineRect | null) => void;
   /**
    * The markdown to show. Applied to the document only when it differs from
-   * what the editor already holds, so echoing `onChange` back is a no-op and
-   * only a genuine external change (switching notes) replaces the text.
+   * what the editor already holds, and never reported back through
+   * `onChange`: switching notes replaces the text without counting as an
+   * edit (which used to queue a needless save of the new note's own content).
    */
   value: string;
   onChange: (markdown: string) => void;
@@ -159,7 +163,10 @@ export default function MarkdownEditor({
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
+            if (
+              update.docChanged &&
+              !update.transactions.some((tr) => tr.annotation(externalValue))
+            ) {
               onChangeRef.current(update.state.doc.toString());
             }
             if (
@@ -201,6 +208,7 @@ export default function MarkdownEditor({
       view.dispatch({
         changes: { from: 0, to: current.length, insert: value },
         selection: { anchor: 0 },
+        annotations: externalValue.of(true),
       });
     }
   }, [value]);

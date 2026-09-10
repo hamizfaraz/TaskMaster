@@ -13,6 +13,14 @@ import { openMathRegion } from "@/components/note-editor/extensions/math-widgets
 // Commands
 // ---------------------------------------------------------------------------
 
+/**
+ * CodeMirror's own user event for applied completions. The history only
+ * merges plain typing and deletion into the previous undo step, so a block
+ * insertion tagged with this stays its own step instead of vanishing along
+ * with the words typed just before it on Ctrl+Z.
+ */
+const BLOCK_USER_EVENT = "input.complete";
+
 /** Markers a line-transform command replaces: heading, list, task, quote. */
 const LINE_MARKER_RE = /^(\s*)(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+\.\s+|>\s+)?/;
 
@@ -34,6 +42,7 @@ function transformLine(prefix: string) {
       changes: { from: line.from, to: line.to, insert: text },
       selection: { anchor: line.from + indent.length + prefix.length },
       scrollIntoView: true,
+      userEvent: BLOCK_USER_EVENT,
     });
   };
 }
@@ -58,6 +67,7 @@ function insertBlock(snippet: string, cursorOffset: number, onInsert?: (view: Ed
       changes: { from: start, to: end, insert },
       selection: { anchor: start + lead.length + cursorOffset },
       scrollIntoView: true,
+      userEvent: BLOCK_USER_EVENT,
     });
     onInsert?.(view, start + lead.length, start + lead.length + snippet.length);
   };
@@ -68,6 +78,7 @@ function insertInline(snippet: string, cursorOffset: number, onInsert?: (view: E
     view.dispatch({
       changes: { from, to, insert: snippet },
       selection: { anchor: from + cursorOffset },
+      userEvent: BLOCK_USER_EVENT,
     });
     onInsert?.(view, from, from + snippet.length);
   };
@@ -76,31 +87,36 @@ function insertInline(snippet: string, cursorOffset: number, onInsert?: (view: E
 const openMath = (view: EditorView, from: number, to: number) => openMathRegion(view, { from, to });
 
 /**
- * Every insertable block type. `type` is a stable id used by the "+ Block"
- * button for icons; CodeMirror ignores it because the menu runs with
- * `icons: false`. This one list drives both the `/` menu and the button.
+ * Every insertable block type, in menu order. `label` is what CodeMirror
+ * matches the typed "/query" against; `displayLabel` is what people see;
+ * `type` is a stable id the "+" gutter button uses for icons. This one list
+ * drives both surfaces.
  */
-export const slashCommands: readonly Completion[] = [
-  { label: "Text", type: "text", detail: "Plain paragraph", apply: transformLine("") },
-  { label: "Heading 1", type: "h1", detail: "Large section heading", apply: transformLine("# ") },
-  { label: "Heading 2", type: "h2", detail: "Section heading", apply: transformLine("## ") },
-  { label: "Heading 3", type: "h3", detail: "Subsection heading", apply: transformLine("### ") },
-  { label: "Bulleted list", type: "bullet", detail: "Unordered list", apply: transformLine("- ") },
-  { label: "Numbered list", type: "number", detail: "Ordered list", apply: transformLine("1. ") },
-  { label: "Checklist", type: "checklist", detail: "Task list", apply: transformLine("- [ ] ") },
-  { label: "Quote", type: "quote", detail: "Block quote", apply: transformLine("> ") },
-  { label: "Code block", type: "code", detail: "Fenced code", apply: insertBlock("```\n\n```", 4) },
+export const slashCommands: readonly Completion[] = ([
+  { label: "/text", displayLabel: "Text", type: "text", detail: "Plain paragraph", apply: transformLine("") },
+  { label: "/heading 1", displayLabel: "Heading 1", type: "h1", detail: "Large section heading", apply: transformLine("# ") },
+  { label: "/heading 2", displayLabel: "Heading 2", type: "h2", detail: "Section heading", apply: transformLine("## ") },
+  { label: "/heading 3", displayLabel: "Heading 3", type: "h3", detail: "Subsection heading", apply: transformLine("### ") },
+  { label: "/bulleted list", displayLabel: "Bulleted list", type: "bullet", detail: "Unordered list", apply: transformLine("- ") },
+  { label: "/numbered list", displayLabel: "Numbered list", type: "number", detail: "Ordered list", apply: transformLine("1. ") },
+  { label: "/checklist", displayLabel: "Checklist", type: "checklist", detail: "Task list", apply: transformLine("- [ ] ") },
+  { label: "/quote", displayLabel: "Quote", type: "quote", detail: "Block quote", apply: transformLine("> ") },
+  { label: "/code block", displayLabel: "Code block", type: "code", detail: "Fenced code", apply: insertBlock("```\n\n```", 4) },
   {
-    label: "Table",
+    label: "/table", displayLabel: "Table",
     type: "table",
     detail: "2×2 table",
     apply: insertBlock("| Column | Column |\n| --- | --- |\n|  |  |", 2),
   },
-  { label: "Image", type: "image", detail: "Image from a URL", apply: insertInline("![alt](https://)", 15) },
-  { label: "Divider", type: "divider", detail: "Horizontal rule", apply: insertBlock("---", 3) },
-  { label: "Math block", type: "math", detail: "Display equation", apply: insertBlock("$$\n\n$$", 3, openMath) },
-  { label: "Inline math", type: "inline-math", detail: "Formula in the text", apply: insertInline("$$", 1, openMath) },
-];
+  { label: "/image", displayLabel: "Image", type: "image", detail: "Image from a URL", apply: insertInline("![alt](https://)", 15) },
+  { label: "/divider", displayLabel: "Divider", type: "divider", detail: "Horizontal rule", apply: insertBlock("---", 3) },
+  { label: "/math block", displayLabel: "Math block", type: "math", detail: "Display equation", apply: insertBlock("$$\n\n$$", 3, openMath) },
+  { label: "/inline math", displayLabel: "Inline math", type: "inline-math", detail: "Formula in the text", apply: insertInline("$$", 1, openMath) },
+] satisfies Completion[]).map((command, index) => ({
+  // Equally good matches sort alphabetically; a boost keeps this list's order.
+  ...command,
+  boost: 99 - index,
+}));
 
 /**
  * Apply a block command at the cursor with nothing to replace — what the
@@ -131,7 +147,18 @@ function insideCodeOrMath(state: EditorState, pos: number) {
   );
 }
 
-/** `/` at the start of a line or after whitespace opens the menu. */
+/**
+ * `/` at the start of a line or after whitespace opens the menu.
+ *
+ * The result's `from` is the slash itself so that accepting a command replaces
+ * the whole `/query`. CodeMirror filters options by matching the typed text —
+ * "/query", slash included — against each option's `label`, which is why the
+ * labels are "/heading 1" and the human-readable name lives in `displayLabel`.
+ * Letting CodeMirror filter (rather than filtering here with `filter: false`)
+ * keeps `validFor` usable, so the open menu narrows on every keystroke instead
+ * of vanishing while a re-query runs — otherwise Enter typed quickly after the
+ * last character lands on an empty menu and inserts a newline.
+ */
 export function slashSource(context: CompletionContext): CompletionResult | null {
   const match = context.matchBefore(SLASH_QUERY_RE);
   if (!match) {
@@ -144,11 +171,7 @@ export function slashSource(context: CompletionContext): CompletionResult | null
     return null;
   }
 
-  return {
-    from: match.from,
-    options: slashCommands,
-    validFor: SLASH_QUERY_RE,
-  };
+  return { from: match.from, options: slashCommands, validFor: SLASH_QUERY_RE };
 }
 
 const slashTheme = EditorView.baseTheme({
@@ -188,6 +211,12 @@ export function slashMenu() {
     autocompletion({
       override: [slashSource],
       activateOnTyping: true,
+      // The menu only opens on an explicit `/`, so CodeMirror's guards
+      // against accidental interaction — waiting to query, then ignoring
+      // Enter for 75ms after the list appears — only made a quickly typed
+      // `/hea⏎` insert a newline instead of a heading.
+      activateOnTypingDelay: 30,
+      interactionDelay: 0,
       icons: false,
       closeOnBlur: true,
     }),

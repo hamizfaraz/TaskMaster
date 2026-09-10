@@ -309,6 +309,13 @@ export function NotesWorkspace({
     selectedIdRef.current = selectedNote?.id ?? null;
   }, [selectedNote?.id]);
 
+  // Note creation resolves asynchronously and must see the latest draft, not
+  // the one captured when the request started.
+  const titleDraftRef = useRef(titleDraftState);
+  useEffect(() => {
+    titleDraftRef.current = titleDraftState;
+  }, [titleDraftState]);
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
@@ -324,16 +331,22 @@ export function NotesWorkspace({
     return noteRecordToWorkspaceNote(payload as NoteRecord);
   }
 
-  function mergeNote(nextNote: WorkspaceNote, options?: { keepPosition?: boolean }) {
+  function mergeNote(
+    nextNote: WorkspaceNote,
+    options?: { keepPosition?: boolean; keepTitle?: boolean },
+  ) {
     setNotes((current) => {
+      const existing = current.find((n) => n.id === nextNote.id);
+      const merged =
+        options?.keepTitle && existing ? { ...nextNote, title: existing.title } : nextNote;
       // Body autosaves would otherwise re-sort by updatedAt and yank the note
       // being edited to the top of the sidebar on every pause in typing.
-      if (options?.keepPosition && current.some((n) => n.id === nextNote.id)) {
-        return current.map((n) => (n.id === nextNote.id ? nextNote : n));
+      if (options?.keepPosition && existing) {
+        return current.map((n) => (n.id === merged.id ? merged : n));
       }
       return sortWorkspaceNotes([
-        nextNote,
-        ...current.filter((n) => n.id !== nextNote.id),
+        merged,
+        ...current.filter((n) => n.id !== merged.id),
       ]);
     });
   }
@@ -382,7 +395,14 @@ export function NotesWorkspace({
     });
 
     const updatedNote = await readNoteRecord(response);
-    mergeNote(updatedNote, { keepPosition: patch.markdown !== undefined });
+    if (patch.title === undefined) {
+      // A body save must not clobber the title: the user may be typing one,
+      // or its own save may still be in flight, and the server's copy is
+      // stale until that returns.
+      mergeNote(updatedNote, { keepPosition: patch.markdown !== undefined, keepTitle: true });
+      return;
+    }
+    mergeNote(updatedNote);
     setTitleDraftState((current) =>
       current.noteId === updatedNote.id
         ? { noteId: updatedNote.id, value: updatedNote.title }
@@ -394,9 +414,13 @@ export function NotesWorkspace({
   // Create (optimistic)
   // -------------------------------------------------------------------------
 
-  async function handleCreateNote(classId?: string | null, silent = false) {
+  function handleCreateNote(classId?: string | null, silent = false) {
     const temp = createTempNote(classId ?? null);
 
+    // Urgent on purpose: the workspace must be showing the new note before
+    // the next keystroke. Inside the transition these updates could sit
+    // behind a keystroke, and a title typed right after "New page" was
+    // committed to whichever note was selected before.
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
     setSelectedId(temp.id);
     setTitleDraftState({ noteId: temp.id, value: "Untitled" });
@@ -409,6 +433,11 @@ export function NotesWorkspace({
       });
     }
 
+    // The request itself is the transition (it drives `isPending`).
+    startTransition(() => createNoteOnServer(temp, classId ?? null));
+  }
+
+  async function createNoteOnServer(temp: WorkspaceNote, classId: string | null) {
     try {
       const response = await fetch("/api/notes", {
         method: "POST",
@@ -420,19 +449,35 @@ export function NotesWorkspace({
         }),
       });
       const created = await readNoteRecord(response);
+      // The user may already have typed a title while the request was in
+      // flight; keep it rather than resetting to the server's "Untitled".
+      const draft = titleDraftRef.current;
+      const typedTitle = draft.noteId === temp.id ? draft.value.trim() : "";
+      const keptTitle = typedTitle && typedTitle !== created.title ? typedTitle : created.title;
       setNotes((current) =>
         sortWorkspaceNotes([
-          created,
+          { ...created, title: keptTitle },
           ...current.filter((n) => n.id !== temp.id),
         ]),
       );
       setSelectedId((prev) => (prev === temp.id ? created.id : prev));
+      // Retarget the draft without touching its text: a functional update
+      // sees the live value, so a title being typed right now is not reset
+      // to the server's "Untitled" mid-keystroke.
       setTitleDraftState((prev) =>
-        prev.noteId === temp.id
-          ? { noteId: created.id, value: created.title }
-          : prev,
+        prev.noteId === temp.id ? { noteId: created.id, value: prev.value } : prev,
       );
       selectedIdRef.current = created.id;
+      if (keptTitle !== created.title) {
+        try {
+          await saveNote(created.id, { title: keptTitle });
+        } catch (titleError) {
+          toast.error("Could not save title", {
+            description: titleError instanceof Error ? titleError.message : undefined,
+            duration: 5000,
+          });
+        }
+      }
     } catch (err) {
       setNotes((current) => current.filter((n) => n.id !== temp.id));
       setSelectedId((prev) => (prev === temp.id ? null : prev));
@@ -444,7 +489,7 @@ export function NotesWorkspace({
   }
 
   const createNoteFromCurrentFilter = useEffectEvent((silent: boolean) => {
-    startTransition(() => void handleCreateNote(fallbackClassId, silent));
+    handleCreateNote(fallbackClassId, silent);
   });
 
   useEffect(() => {
@@ -971,7 +1016,7 @@ export function NotesWorkspace({
             aria-hidden="true"
           />
           <span className="min-w-0 flex-1 truncate font-medium">
-            {getRenderableTitle(note.title)}
+            {getRenderableTitle(titleDraftState.noteId === note.id ? titleDraftState.value : note.title)}
           </span>
           {options?.compact ? null : (
             <span className="shrink-0 text-[11px] text-muted-foreground" suppressHydrationWarning>
@@ -1063,9 +1108,7 @@ export function NotesWorkspace({
           <div className="flex h-12 items-center gap-2 border-b border-border px-3">
             <button
               type="button"
-              onClick={() =>
-                startTransition(() => void handleCreateNote(fallbackClassId))
-              }
+              onClick={() => handleCreateNote(fallbackClassId)}
               disabled={isPending}
               className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-foreground hover:bg-surface disabled:opacity-60"
             >
@@ -1209,11 +1252,7 @@ export function NotesWorkspace({
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          startTransition(
-                            () => void handleCreateNote(group.classId),
-                          )
-                        }
+                        onClick={() => handleCreateNote(group.classId)}
                         disabled={isPending}
                         className="mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-0 hover:bg-surface-elevated group-hover:opacity-100 disabled:opacity-40"
                         aria-label={`New note in ${group.title}`}
@@ -1390,18 +1429,12 @@ export function NotesWorkspace({
                     data-note-selection-region
                     value={draftTitle}
                     onChange={(event) => {
-                      const nextTitle = event.currentTarget.value;
+                      // Draft only. Writing it into `notes` too made the commit
+                      // compare the draft against itself and skip the save.
                       setTitleDraftState({
                         noteId: selectedNote.id,
-                        value: nextTitle,
+                        value: event.currentTarget.value,
                       });
-                      setNotes((current) =>
-                        current.map((n) =>
-                          n.id === selectedNote.id
-                            ? { ...n, title: nextTitle }
-                            : n,
-                        ),
-                      );
                     }}
                     onBlur={() => void handleTitleCommit()}
                     onKeyDown={(event) => {
@@ -1432,11 +1465,7 @@ export function NotesWorkspace({
               <div className="flex gap-2">
                 <Button
                   type="button"
-                  onClick={() =>
-                    startTransition(
-                      () => void handleCreateNote(fallbackClassId),
-                    )
-                  }
+                  onClick={() => handleCreateNote(fallbackClassId)}
                   disabled={isPending}
                 >
                   New page

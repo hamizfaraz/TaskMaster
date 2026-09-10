@@ -24,29 +24,35 @@ export type UseAutosaveOptions = {
 };
 
 /**
- * Debounced, coalescing autosave.
+ * Debounced, coalescing autosave with a per-note queue.
  *
- * One-slot mailbox + single-flight latch: at most one save is in flight and at
- * most one is queued behind it, and the queued one is always the newest
- * content. Each queued entry carries the note id it was typed into, so a
- * flush that races a note switch still saves to the right note.
+ * Content coalesces *within* a note (the newest text wins) but never across
+ * notes: typing in A, switching to B, then to C before A's save has started
+ * must still save all three. A single-slot mailbox got this wrong — the
+ * pending entry for B was overwritten the moment C was typed into, and B's
+ * edits were lost. Queued notes save in the order they were first queued,
+ * with at most one request in flight.
  *
- * Unlike the previous editor, a failed save re-queues the content (unless
- * newer content already superseded it) and surfaces the error, instead of
- * silently discarding the edit.
+ * A failed save re-queues its content (unless newer content already
+ * superseded it) and surfaces the error instead of dropping the edit.
  *
- * `draft` is the latest content handed to `notifyChange`, exposed as state so
- * the caller can derive what to display without keeping a second copy.
+ * `latest` is the newest markdown this session has produced per note. The
+ * editor prefers it over the workspace's copy of the server state when
+ * switching back to a note, since that copy may predate a save still in
+ * flight. `draft` is the most recent entry, kept for callers that need to
+ * know which note was typed into last.
  */
 export function useAutosave({ noteId, onSave, enabled = true, delay = 180 }: UseAutosaveOptions) {
   const [status, setStatus] = useState<AutosaveStatus>("idle");
   const [draft, setDraft] = useState<AutosaveDraft | null>(null);
-  const pendingRef = useRef<AutosaveDraft | null>(null);
+  const [latest, setLatest] = useState<Record<string, string>>({});
+  const queueRef = useRef(new Map<string, string>());
   const flushingRef = useRef(false);
   const timerRef = useRef<number | null>(null);
   const onSaveRef = useRef(onSave);
   const enabledRef = useRef(enabled);
   const noteIdRef = useRef(noteId);
+  const previousRef = useRef({ noteId, enabled });
   onSaveRef.current = onSave;
   enabledRef.current = enabled;
   noteIdRef.current = noteId;
@@ -65,17 +71,17 @@ export function useAutosave({ noteId, onSave, enabled = true, delay = 180 }: Use
 
     flushingRef.current = true;
     try {
-      while (pendingRef.current) {
-        const next = pendingRef.current;
-        pendingRef.current = null;
+      while (queueRef.current.size > 0) {
+        const [id, markdown] = queueRef.current.entries().next().value as [string, string];
+        queueRef.current.delete(id);
         setStatus("saving");
 
         try {
-          await onSaveRef.current(next.noteId, next.markdown);
-          setStatus(pendingRef.current ? "dirty" : "saved");
+          await onSaveRef.current(id, markdown);
+          setStatus(queueRef.current.size > 0 ? "dirty" : "saved");
         } catch (error) {
-          if (!pendingRef.current) {
-            pendingRef.current = next;
+          if (!queueRef.current.has(id)) {
+            queueRef.current.set(id, markdown);
           }
           setStatus("error");
           toast.error("Could not save note", {
@@ -92,9 +98,10 @@ export function useAutosave({ noteId, onSave, enabled = true, delay = 180 }: Use
 
   const notifyChange = useCallback(
     (markdown: string) => {
-      const next = { noteId: noteIdRef.current, markdown };
-      pendingRef.current = next;
-      setDraft(next);
+      const id = noteIdRef.current;
+      queueRef.current.set(id, markdown); // Map keeps first-queued order; newest text per note
+      setDraft({ noteId: id, markdown });
+      setLatest((current) => ({ ...current, [id]: markdown }));
       setStatus("dirty");
       clearTimer();
       timerRef.current = window.setTimeout(() => {
@@ -110,11 +117,27 @@ export function useAutosave({ noteId, onSave, enabled = true, delay = 180 }: Use
     await flushPending();
   }, [flushPending]);
 
-  // Saving just became possible (temp note promoted to a real id): retarget
-  // whatever was typed in the meantime and persist it.
+  // A temp note promoted to its real id (saving just became possible):
+  // retarget what was typed under the temp id, then persist it. Plain note
+  // switches leave `enabled` true and only drain the queue.
   useEffect(() => {
-    if (enabled && pendingRef.current) {
-      pendingRef.current = { ...pendingRef.current, noteId };
+    const previous = previousRef.current;
+    previousRef.current = { noteId, enabled };
+
+    if (enabled && !previous.enabled && previous.noteId !== noteId) {
+      const queued = queueRef.current.get(previous.noteId);
+      if (queued !== undefined) {
+        queueRef.current.delete(previous.noteId);
+        queueRef.current.set(noteId, queued);
+      }
+      setLatest((current) =>
+        current[previous.noteId] === undefined
+          ? current
+          : { ...current, [noteId]: current[previous.noteId] },
+      );
+    }
+
+    if (enabled && queueRef.current.size > 0) {
       void flushPending();
     }
   }, [enabled, noteId, flushPending]);
@@ -127,5 +150,5 @@ export function useAutosave({ noteId, onSave, enabled = true, delay = 180 }: Use
     [flushPending],
   );
 
-  return { status, draft, notifyChange, flush, retry: flush };
+  return { status, draft, latest, notifyChange, flush, retry: flush };
 }
