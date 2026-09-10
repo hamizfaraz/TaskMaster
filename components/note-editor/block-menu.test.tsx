@@ -8,7 +8,7 @@ vi.mock("@/components/note-editor/extensions/mathlive-loader", () => ({
   loadMathLive: () => Promise.resolve(),
 }));
 
-import { BlockMenu } from "@/components/note-editor/block-menu";
+import { BlockMenu, menuShiftFor } from "@/components/note-editor/block-menu";
 import { slashCommands } from "@/components/note-editor/extensions/slash-menu";
 import MarkdownEditor, {
   type ActiveLineRect,
@@ -157,5 +157,54 @@ describe("active line geometry", () => {
     await nextFrames();
 
     expect(onActiveLine.mock.calls.length).toBe(calls);
+  });
+});
+
+describe("keeping the menu on screen", () => {
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+    cleanup();
+  });
+
+  it("slides up by exactly the overflow, and never past the top of the viewport", () => {
+    expect(menuShiftFor({ top: 100, bottom: 400 }, 768)).toBe(0); // fits
+    expect(menuShiftFor({ top: 700, bottom: 1000 }, 768)).toBe(240); // 1000 - (768 - 8)
+    expect(menuShiftFor({ top: 20, bottom: 1000 }, 768)).toBe(12); // clamped to top - margin
+    expect(menuShiftFor({ top: 0, bottom: 1000 }, 768)).toBe(0); // nothing left to give
+  });
+
+  it("applies the shift to the opened menu when it would run off the bottom", async () => {
+    // jsdom has no layout: fake a menu that opens 700px down a 768px viewport.
+    Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const isMenu = this.getAttribute("role") === "menu";
+      return {
+        top: isMenu ? 700 : 0,
+        bottom: isMenu ? 1000 : 0,
+        left: 0,
+        right: 0,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: isMenu ? 300 : 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+
+    const { user } = mount("");
+    await user.click(trigger());
+    await nextFrames();
+
+    expect(screen.getByRole("menu")).toHaveStyle({ transform: "translateY(-240px)" });
+  });
+
+  it("leaves the menu where it is when it already fits", async () => {
+    const { user } = mount("");
+    await user.click(trigger());
+    await nextFrames();
+
+    expect(screen.getByRole("menu").style.transform).toBe("");
   });
 });

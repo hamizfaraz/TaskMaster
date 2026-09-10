@@ -42,6 +42,26 @@ const ICONS: Record<string, LucideIcon> = {
 /** Diameter of the gutter button, used to centre it on the line. */
 const BUTTON_SIZE = 24;
 
+/** Breathing room kept between the menu and the viewport edge. */
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * How far (px) to slide the menu up so its bottom stays on screen. Never
+ * pushes its top above the viewport; a menu taller than the viewport is
+ * left to its own max-height scroll.
+ */
+export function menuShiftFor(
+  rect: { top: number; bottom: number },
+  viewportHeight: number,
+  margin = VIEWPORT_MARGIN,
+) {
+  const overflow = rect.bottom - (viewportHeight - margin);
+  if (overflow <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(overflow, rect.top - margin));
+}
+
 export type BlockMenuProps = {
   /** Top of the active line, relative to the editor host. */
   top: number;
@@ -59,6 +79,7 @@ export type BlockMenuProps = {
 export function BlockMenu({ top, height, onPick }: BlockMenuProps) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const close = () => setOpen(false);
@@ -68,12 +89,26 @@ export function BlockMenu({ top, height, onPick }: BlockMenuProps) {
     onPick(command);
   };
 
+  /** Keep every option on screen when the button sits low in the viewport. */
+  const keepMenuOnScreen = () => {
+    const menu = menuRef.current;
+    if (!menu) {
+      return;
+    }
+    const shift = menuShiftFor(menu.getBoundingClientRect(), window.innerHeight);
+    menu.style.transform = shift > 0 ? `translateY(-${shift}px)` : "";
+  };
+
   const toggle = () => {
     const next = !open;
     setOpen(next);
     if (next) {
-      // Land keyboard users on the first item once it exists.
-      requestAnimationFrame(() => itemRefs.current[0]?.focus());
+      // The menu exists on the next frame: place it, then land keyboard
+      // users on the first item.
+      requestAnimationFrame(() => {
+        keepMenuOnScreen();
+        itemRefs.current[0]?.focus();
+      });
     }
   };
 
@@ -122,9 +157,10 @@ export function BlockMenu({ top, height, onPick }: BlockMenuProps) {
           <div className="fixed inset-0 z-[49]" onClick={close} />
           <div
             id={menuId}
+            ref={menuRef}
             role="menu"
             aria-label="Insert block"
-            className="absolute left-7 top-0 z-[50] max-h-[70vh] min-w-[15rem] overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-surface-elevated py-1 shadow-[var(--shadow-card)]"
+            className="absolute left-7 top-0 z-[50] max-h-[calc(100vh-1rem)] min-w-[15rem] overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-surface-elevated py-1 shadow-[var(--shadow-card)]"
           >
             {slashCommands.map((command, index) => {
               const Icon = ICONS[command.type ?? ""] ?? Plus;
