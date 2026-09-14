@@ -146,6 +146,7 @@ Use these before reaching for anything external. Do **not** add Radix primitives
 | `sonner` | Toasts — `import { toast } from "sonner"` |
 | `lucide-react` | Icons — use `Loader2 animate-spin` for loading |
 | `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` | Markdown with math — reuse the `MarkdownText` component pattern from quizzes/flashcards |
+| `@codemirror/*` + `mathlive` + `katex` | The note editor: live-preview Markdown (CM6), structural math editing (MathLive), math rendering (KaTeX). Do not add a second editor or math engine. |
 | `zod` v4 | Validation — `safeParse` on API bodies |
 | `drizzle-orm` | DB ORM |
 | `better-auth` | Auth — `lib/auth.ts`, `lib/auth-client.ts` |
@@ -374,7 +375,7 @@ These rules come from production React at scale. Violating them causes bugs that
 
 7. **Many study routes are scaffolds** — `/resources`, most `/study/*` pages use `ScaffoldPage` and are not implemented. Don't assume they have real functionality.
 
-8. **Note editor is Editor.js** — complex, debounced, with custom blocks. Hundreds of CSS lines in `globals.css`. Do not touch it without reading `components/note-editor/`.
+8. **Note editor is CodeMirror 6 + MathLive** (`components/note-editor/`). Markdown is the canonical note format; the block document in `note.content` is a derived cache. Math regions come from the shared scanner in `lib/notes/math-ranges.ts`, so the server normalizes exactly what the editor renders. Read `components/note-editor/README.md` and `docs/note-editor-requirements.md` before changing either.
 
 9. **Quiz storage guard** — `hasQuizStorage()` returns false if DB migrations haven't run; quiz APIs return 503. The page handles it gracefully — keep that check when adding quiz API routes.
 

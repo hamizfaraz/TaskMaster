@@ -25,19 +25,18 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { NoteSurface } from "@/components/note-editor/note-surface";
 import { AsciiBackground } from "@/components/shell/ascii-background";
 import { useAsciiBackgroundEnabled } from "@/components/shell/background-preference";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 import {
   noteRecordToWorkspaceNote,
+  isTempNoteId,
   sortWorkspaceNotes,
   type NoteRecord,
   type WorkspaceNote,
 } from "@/lib/notes/records";
-import { emptyNoteDocument, type NoteContent } from "@/lib/notes/types";
-import { parseMarkdownToNoteDocument } from "@/lib/notes/markdown";
+import { NoteEditor } from "@/components/note-editor/note-editor";
 
 type WorkspaceClass = {
   id: string;
@@ -60,6 +59,12 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
+/**
+ * Rendered on the server and hydrated on the client, whose timezone can put
+ * the same instant on a different calendar day. The spans that show this
+ * carry `suppressHydrationWarning`, and React patches the text on hydration
+ * so the user always sees their local date.
+ */
 function formatTimestamp(value: string) {
   return TIMESTAMP_FORMATTER.format(new Date(value));
 }
@@ -102,7 +107,7 @@ function getClassShortLabel(item: WorkspaceClass) {
   return acronym;
 }
 
-const isTempNote = (id: string) => id.startsWith("temp-");
+const isTempNote = isTempNoteId;
 
 function createTempNote(
   classId: string | null,
@@ -304,6 +309,13 @@ export function NotesWorkspace({
     selectedIdRef.current = selectedNote?.id ?? null;
   }, [selectedNote?.id]);
 
+  // Note creation resolves asynchronously and must see the latest draft, not
+  // the one captured when the request started.
+  const titleDraftRef = useRef(titleDraftState);
+  useEffect(() => {
+    titleDraftRef.current = titleDraftState;
+  }, [titleDraftState]);
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
@@ -319,13 +331,24 @@ export function NotesWorkspace({
     return noteRecordToWorkspaceNote(payload as NoteRecord);
   }
 
-  function mergeNote(nextNote: WorkspaceNote) {
-    setNotes((current) =>
-      sortWorkspaceNotes([
-        nextNote,
-        ...current.filter((n) => n.id !== nextNote.id),
-      ]),
-    );
+  function mergeNote(
+    nextNote: WorkspaceNote,
+    options?: { keepPosition?: boolean; keepTitle?: boolean },
+  ) {
+    setNotes((current) => {
+      const existing = current.find((n) => n.id === nextNote.id);
+      const merged =
+        options?.keepTitle && existing ? { ...nextNote, title: existing.title } : nextNote;
+      // Body autosaves would otherwise re-sort by updatedAt and yank the note
+      // being edited to the top of the sidebar on every pause in typing.
+      if (options?.keepPosition && existing) {
+        return current.map((n) => (n.id === merged.id ? merged : n));
+      }
+      return sortWorkspaceNotes([
+        merged,
+        ...current.filter((n) => n.id !== merged.id),
+      ]);
+    });
   }
 
   function mergeNotes(nextNotes: WorkspaceNote[]) {
@@ -357,7 +380,7 @@ export function NotesWorkspace({
 
   async function saveNote(
     noteId: string,
-    patch: { title?: string; content?: NoteContent; classId?: string | null },
+    patch: { title?: string; markdown?: string; classId?: string | null },
   ) {
     if (isTempNote(noteId)) return; // creation pending — skip
 
@@ -366,12 +389,19 @@ export function NotesWorkspace({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.content ? { content: patch.content.document } : {}),
+        ...(patch.markdown !== undefined ? { markdown: patch.markdown } : {}),
         ...(patch.classId !== undefined ? { classId: patch.classId } : {}),
       }),
     });
 
     const updatedNote = await readNoteRecord(response);
+    if (patch.title === undefined) {
+      // A body save must not clobber the title: the user may be typing one,
+      // or its own save may still be in flight, and the server's copy is
+      // stale until that returns.
+      mergeNote(updatedNote, { keepPosition: patch.markdown !== undefined, keepTitle: true });
+      return;
+    }
     mergeNote(updatedNote);
     setTitleDraftState((current) =>
       current.noteId === updatedNote.id
@@ -384,9 +414,13 @@ export function NotesWorkspace({
   // Create (optimistic)
   // -------------------------------------------------------------------------
 
-  async function handleCreateNote(classId?: string | null, silent = false) {
+  function handleCreateNote(classId?: string | null, silent = false) {
     const temp = createTempNote(classId ?? null);
 
+    // Urgent on purpose: the workspace must be showing the new note before
+    // the next keystroke. Inside the transition these updates could sit
+    // behind a keystroke, and a title typed right after "New page" was
+    // committed to whichever note was selected before.
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
     setSelectedId(temp.id);
     setTitleDraftState({ noteId: temp.id, value: "Untitled" });
@@ -399,6 +433,11 @@ export function NotesWorkspace({
       });
     }
 
+    // The request itself is the transition (it drives `isPending`).
+    startTransition(() => createNoteOnServer(temp, classId ?? null));
+  }
+
+  async function createNoteOnServer(temp: WorkspaceNote, classId: string | null) {
     try {
       const response = await fetch("/api/notes", {
         method: "POST",
@@ -406,23 +445,39 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: "Untitled",
           classId: classId ?? null,
-          content: { ...emptyNoteDocument, blocks: [] },
+          markdown: "",
         }),
       });
       const created = await readNoteRecord(response);
+      // The user may already have typed a title while the request was in
+      // flight; keep it rather than resetting to the server's "Untitled".
+      const draft = titleDraftRef.current;
+      const typedTitle = draft.noteId === temp.id ? draft.value.trim() : "";
+      const keptTitle = typedTitle && typedTitle !== created.title ? typedTitle : created.title;
       setNotes((current) =>
         sortWorkspaceNotes([
-          created,
+          { ...created, title: keptTitle },
           ...current.filter((n) => n.id !== temp.id),
         ]),
       );
       setSelectedId((prev) => (prev === temp.id ? created.id : prev));
+      // Retarget the draft without touching its text: a functional update
+      // sees the live value, so a title being typed right now is not reset
+      // to the server's "Untitled" mid-keystroke.
       setTitleDraftState((prev) =>
-        prev.noteId === temp.id
-          ? { noteId: created.id, value: created.title }
-          : prev,
+        prev.noteId === temp.id ? { noteId: created.id, value: prev.value } : prev,
       );
       selectedIdRef.current = created.id;
+      if (keptTitle !== created.title) {
+        try {
+          await saveNote(created.id, { title: keptTitle });
+        } catch (titleError) {
+          toast.error("Could not save title", {
+            description: titleError instanceof Error ? titleError.message : undefined,
+            duration: 5000,
+          });
+        }
+      }
     } catch (err) {
       setNotes((current) => current.filter((n) => n.id !== temp.id));
       setSelectedId((prev) => (prev === temp.id ? null : prev));
@@ -434,7 +489,7 @@ export function NotesWorkspace({
   }
 
   const createNoteFromCurrentFilter = useEffectEvent((silent: boolean) => {
-    startTransition(() => void handleCreateNote(fallbackClassId, silent));
+    handleCreateNote(fallbackClassId, silent);
   });
 
   useEffect(() => {
@@ -501,7 +556,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          content: source.content.document,
+          markdown: source.content.markdown,
         }),
       });
       const created = await readNoteRecord(response);
@@ -598,7 +653,6 @@ export function NotesWorkspace({
 
     try {
       const text = await file.text();
-      const document = parseMarkdownToNoteDocument(text);
       const title = file.name.replace(/\.md$/i, "").trim() || "Imported Note";
 
       const response = await fetch("/api/notes", {
@@ -607,7 +661,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title,
           classId: classId ?? null,
-          content: document,
+          markdown: text,
         }),
       });
 
@@ -754,7 +808,7 @@ export function NotesWorkspace({
             body: JSON.stringify({
               title: temp.title,
               classId: temp.classId,
-              content: source.content.document,
+              markdown: source.content.markdown,
             }),
           });
           const created = await readNoteRecord(response);
@@ -809,7 +863,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          content: source.content.document,
+          markdown: source.content.markdown,
         }),
       });
       const created = await readNoteRecord(response);
@@ -962,10 +1016,10 @@ export function NotesWorkspace({
             aria-hidden="true"
           />
           <span className="min-w-0 flex-1 truncate font-medium">
-            {getRenderableTitle(note.title)}
+            {getRenderableTitle(titleDraftState.noteId === note.id ? titleDraftState.value : note.title)}
           </span>
           {options?.compact ? null : (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-[11px] text-muted-foreground" suppressHydrationWarning>
               {formatTimestamp(note.updatedAt)}
             </span>
           )}
@@ -1054,9 +1108,7 @@ export function NotesWorkspace({
           <div className="flex h-12 items-center gap-2 border-b border-border px-3">
             <button
               type="button"
-              onClick={() =>
-                startTransition(() => void handleCreateNote(fallbackClassId))
-              }
+              onClick={() => handleCreateNote(fallbackClassId)}
               disabled={isPending}
               className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-foreground hover:bg-surface disabled:opacity-60"
             >
@@ -1200,11 +1252,7 @@ export function NotesWorkspace({
                       </button>
                       <button
                         type="button"
-                        onClick={() =>
-                          startTransition(
-                            () => void handleCreateNote(group.classId),
-                          )
-                        }
+                        onClick={() => handleCreateNote(group.classId)}
                         disabled={isPending}
                         className="mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-0 hover:bg-surface-elevated group-hover:opacity-100 disabled:opacity-40"
                         aria-label={`New note in ${group.title}`}
@@ -1376,61 +1424,39 @@ export function NotesWorkspace({
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-                <NoteSurface
-                  initialDocument={selectedNote.content.document}
-                  keepEditingWhenEmpty
-                  selectionPrelude={
-                    <div className="mx-auto w-full px-4 pt-7 md:px-10 md:pt-10">
-                      <input
-                        data-note-selection-region
-                        value={draftTitle}
-                        onChange={(event) => {
-                          const nextTitle = event.currentTarget.value;
-                          setTitleDraftState({
-                            noteId: selectedNote.id,
-                            value: nextTitle,
-                          });
-                          setNotes((current) =>
-                            current.map((n) =>
-                              n.id === selectedNote.id
-                                ? { ...n, title: nextTitle }
-                                : n,
-                            ),
-                          );
-                        }}
-                        onBlur={() => void handleTitleCommit()}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") event.currentTarget.blur();
-                        }}
-                        className="w-full border-none bg-transparent p-0 text-4xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
-                        placeholder="Untitled"
-                      />
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>{formatTimestamp(selectedNote.updatedAt)}</span>
-                        {selectedNote.fileName ? (
-                          <span className="truncate">
-                            {selectedNote.fileName}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  }
-                  onSave={async (nextContent) => {
-                    try {
-                      await saveNote(selectedNote.id, {
-                        title: draftTitle.trim() || "Untitled",
-                        content: nextContent,
+                <div className="mx-auto w-full px-4 pt-7 md:px-10 md:pt-10">
+                  <input
+                    data-note-selection-region
+                    value={draftTitle}
+                    onChange={(event) => {
+                      // Draft only. Writing it into `notes` too made the commit
+                      // compare the draft against itself and skip the save.
+                      setTitleDraftState({
+                        noteId: selectedNote.id,
+                        value: event.currentTarget.value,
                       });
-                    } catch (saveError) {
-                      toast.error("Could not save note", {
-                        description:
-                          saveError instanceof Error
-                            ? saveError.message
-                            : undefined,
-                        duration: 5000,
-                      });
-                    }
-                  }}
+                    }}
+                    onBlur={() => void handleTitleCommit()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                    className="w-full border-none bg-transparent p-0 text-4xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+                    placeholder="Untitled"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span suppressHydrationWarning>{formatTimestamp(selectedNote.updatedAt)}</span>
+                    {selectedNote.fileName ? (
+                      <span className="truncate">{selectedNote.fileName}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <NoteEditor
+                  className="mx-auto w-full px-4 pb-10 pt-6 md:px-10"
+                  noteId={selectedNote.id}
+                  initialMarkdown={selectedNote.content.markdown}
+                  saveEnabled={!isTempNote(selectedNote.id)}
+                  onSave={(noteId, markdown) => saveNote(noteId, { markdown })}
                 />
               </div>
             </div>
@@ -1439,11 +1465,7 @@ export function NotesWorkspace({
               <div className="flex gap-2">
                 <Button
                   type="button"
-                  onClick={() =>
-                    startTransition(
-                      () => void handleCreateNote(fallbackClassId),
-                    )
-                  }
+                  onClick={() => handleCreateNote(fallbackClassId)}
                   disabled={isPending}
                 >
                   New page

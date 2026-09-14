@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cx } from "@/lib/utils";
 
@@ -100,6 +100,14 @@ function getLocalDateKey(date: Date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+/** Inverse of getLocalDateKey: local midnight of a YYYY-MM-DD key. */
+function parseDateKey(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1);
+}
+
+const subscribeToNothing = () => () => {};
 
 function getEventDateKey(event: CalendarEvent) {
   if (!event.dueAt) {
@@ -254,10 +262,27 @@ function Chevron({ direction }: { direction: "left" | "right" }) {
 }
 
 export function CalendarClient({ events, initialDate }: CalendarClientProps) {
-  const today = useMemo(() => new Date(initialDate), [initialDate]);
-  const todayKey = useMemo(() => getLocalDateKey(today), [today]);
-  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(today));
-  const [selectedKey, setSelectedKey] = useState(todayKey);
+  // "Today" is the user's local day, which the server cannot know. Hydrate
+  // with a timezone-independent key from the server's snapshot (identical on
+  // both sides), then let React switch to the browser's local day — that is
+  // a re-render, not a hydration mismatch. The old code derived the key with
+  // local getters on each side and mismatched whenever the two zones
+  // disagreed on the date.
+  const todayKey = useSyncExternalStore(
+    subscribeToNothing,
+    () => getLocalDateKey(new Date()),
+    () => initialDate.slice(0, 10),
+  );
+  const today = useMemo(() => parseDateKey(todayKey), [todayKey]);
+  // Null means "follow today" until the user navigates or picks a day, so the
+  // selected day and the highlighted one can never disagree.
+  const [visibleMonthOverride, setVisibleMonth] = useState<Date | null>(null);
+  const [selectedKeyOverride, setSelectedKey] = useState<string | null>(null);
+  const visibleMonth = useMemo(
+    () => visibleMonthOverride ?? startOfMonth(today),
+    [visibleMonthOverride, today],
+  );
+  const selectedKey = selectedKeyOverride ?? todayKey;
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [showRecurring, setShowRecurring] = useState(true);
   const visibleEvents = useMemo(

@@ -77,11 +77,9 @@ describe("FlashcardsClient", () => {
   it("keeps My Flashcards focused on saved deck management", () => {
     render(<FlashcardsClient notes={notes} initialDecks={[deck()]} />);
 
-    expect(screen.getByRole("heading", { name: "My Flashcards" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Biology deck" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Edit/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Delete/ })).toBeInTheDocument();
+    expect(screen.getByText("1 decks")).toBeInTheDocument();
+    expect(screen.getByText("Biology deck")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open actions for Biology deck/ })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /Lecture One/ })).not.toBeInTheDocument();
   });
 
@@ -131,7 +129,7 @@ describe("FlashcardsClient", () => {
     await user.clear(screen.getByLabelText("Deck name"));
     await user.type(screen.getByLabelText("Deck name"), "Edited deck");
     await user.clear(screen.getByLabelText("Front"));
-    await user.type(screen.getByLabelText("Front"), "Edited front");
+    await user.type(screen.getByLabelText("Front"), "Edited front $√(x²)$");
     await user.type(screen.getByLabelText("Tags"), "core");
     await user.click(screen.getByRole("button", { name: /Save deck/ }));
 
@@ -148,7 +146,7 @@ describe("FlashcardsClient", () => {
       title: "Edited deck",
       cards: [
         {
-          front: "Edited front",
+          front: "Edited front $\\sqrt{x^2}$",
           back: "Generated back",
           tags: ["core"],
         },
@@ -175,7 +173,8 @@ describe("FlashcardsClient", () => {
 
     render(<FlashcardsClient notes={notes} initialDecks={[deck()]} />);
 
-    await user.click(screen.getByRole("button", { name: /Edit/ }));
+    await user.click(screen.getByRole("button", { name: /Open actions for Biology deck/ }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.clear(screen.getByLabelText("Deck name"));
     await user.type(screen.getByLabelText("Deck name"), "Renamed deck");
     await user.clear(screen.getByLabelText("Back"));
@@ -213,12 +212,13 @@ describe("FlashcardsClient", () => {
 
     render(<FlashcardsClient notes={notes} initialDecks={[deck()]} />);
 
-    await user.click(screen.getByRole("button", { name: /Delete/ }));
+    await user.click(screen.getByRole("button", { name: /Open actions for Biology deck/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "Biology deck" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Biology deck")).not.toBeInTheDocument();
     });
-    expect(screen.getByText("No flashcard decks")).toBeInTheDocument();
+    expect(screen.getByText("No saved decks")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("/api/flashcards?deckId=deck-1", { method: "DELETE" });
   });
 });

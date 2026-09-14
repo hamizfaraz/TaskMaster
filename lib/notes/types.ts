@@ -1,4 +1,25 @@
-import type { OutputBlockData, OutputData } from "@editorjs/editorjs";
+/**
+ * Editor-agnostic block/document shape.
+ *
+ * Mirrors what the previous Editor.js integration produced so stored notes
+ * keep parsing, but defined locally so the persistence layer does not depend
+ * on any editor library.
+ */
+export type NoteBlockShape<
+  Type extends string = string,
+  Data extends object = Record<string, unknown>,
+> = {
+  id?: string;
+  type: Type;
+  data: Data;
+  tunes?: Record<string, unknown>;
+};
+
+type NoteDocumentShape = {
+  version?: string;
+  time?: number;
+};
+
 import { z } from "zod";
 
 export type RichTextBlockType = "paragraph" | "header" | "quote";
@@ -10,7 +31,9 @@ export type NoteBlockType =
   | "code"
   | "mermaid"
   | "image"
-  | "math";
+  | "table"
+  | "math"
+  | "inlineMath";
 
 export type NoteParagraphBlockData = {
   text: string;
@@ -70,21 +93,36 @@ export type NoteImageBlockData = {
   stretched: boolean;
 };
 
+export type NoteTableAlignment = "left" | "center" | "right" | null;
+
+/**
+ * GFM table. `rows[0]` is the header row (GFM tables always have one); cells
+ * hold raw inline Markdown so the block round-trips without an HTML detour.
+ */
+export type NoteTableBlockData = {
+  rows: string[][];
+  align?: NoteTableAlignment[];
+};
+
 export type NoteMathBlockData = {
   latex: string;
 };
 
-export type NoteBlock =
-  | OutputBlockData<"paragraph", NoteParagraphBlockData>
-  | OutputBlockData<"header", NoteHeaderBlockData>
-  | OutputBlockData<"list", NoteListBlockData>
-  | OutputBlockData<"quote", NoteQuoteBlockData>
-  | OutputBlockData<"code", NoteCodeBlockData>
-  | OutputBlockData<"mermaid", NoteMermaidBlockData>
-  | OutputBlockData<"image", NoteImageBlockData>
-  | OutputBlockData<"math", NoteMathBlockData>;
+export type NoteInlineMathBlockData = NoteMathBlockData;
 
-export type NoteDocument = Omit<OutputData, "blocks"> & {
+export type NoteBlock =
+  | NoteBlockShape<"paragraph", NoteParagraphBlockData>
+  | NoteBlockShape<"header", NoteHeaderBlockData>
+  | NoteBlockShape<"list", NoteListBlockData>
+  | NoteBlockShape<"quote", NoteQuoteBlockData>
+  | NoteBlockShape<"code", NoteCodeBlockData>
+  | NoteBlockShape<"image", NoteImageBlockData>
+  | NoteBlockShape<"mermaid", NoteMermaidBlockData>
+  | NoteBlockShape<"table", NoteTableBlockData>
+  | NoteBlockShape<"math", NoteMathBlockData>
+  | NoteBlockShape<"inlineMath", NoteInlineMathBlockData>;
+
+export type NoteDocument = NoteDocumentShape & {
   blocks: NoteBlock[];
 };
 
@@ -193,9 +231,32 @@ const imageBlockSchema = z.object({
   tunes: z.record(z.string(), z.unknown()).optional(),
 });
 
+const tableBlockSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("table"),
+  data: z.object({
+    rows: z.array(z.array(z.string())).min(1),
+    align: z
+      .array(
+        z.union([z.literal("left"), z.literal("center"), z.literal("right"), z.null()]),
+      )
+      .optional(),
+  }),
+  tunes: z.record(z.string(), z.unknown()).optional(),
+});
+
 const mathBlockSchema = z.object({
   id: z.string().optional(),
   type: z.literal("math"),
+  data: z.object({
+    latex: z.string(),
+  }),
+  tunes: z.record(z.string(), z.unknown()).optional(),
+});
+
+const inlineMathBlockSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("inlineMath"),
   data: z.object({
     latex: z.string(),
   }),
@@ -210,7 +271,9 @@ export const NoteBlockSchema = z.discriminatedUnion("type", [
   codeBlockSchema,
   mermaidBlockSchema,
   imageBlockSchema,
+  tableBlockSchema,
   mathBlockSchema,
+  inlineMathBlockSchema,
 ]);
 
 export const NoteDocumentSchema: z.ZodType<NoteDocument> = z
