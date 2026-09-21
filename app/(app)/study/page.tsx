@@ -7,7 +7,7 @@ const studyPages = [
   { href: "/study/feynman", title: "Feynman", description: "Explanation-first study workflow scaffold.", live: false },
   { href: "/study/active-recall", title: "Active recall", description: "Timed bullet-point recall scaffold.", live: false },
   { href: "/study/cheat-sheet", title: "Cheat sheet", description: "Split-pane note and summary scaffold.", live: false },
-  { href: "/study/associations", title: "Associations", description: "Mind-map style association builder scaffold.", live: false },
+  { href: "/study/associations", title: "Associations", description: "Mind-map style association builder.", live: true },
   { href: "/study/spaced-repetition", title: "Spaced repetition", description: "Review scheduling scaffold.", live: false },
 ] as const;
 
