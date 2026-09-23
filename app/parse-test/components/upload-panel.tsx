@@ -1,5 +1,5 @@
 import type { ChangeEvent, FormEvent } from "react";
-import { Loader2, Upload } from "lucide-react";
+import { ArrowLeft, Loader2, Upload } from "lucide-react";
 import { getButtonClassName } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ type UploadPanelProps = {
   fileInputKey: number;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (formData: FormData) => Promise<void>;
+  onClose: () => void;
 };
 
 export function UploadPanel({
@@ -21,6 +22,7 @@ export function UploadPanel({
   fileInputKey,
   onFileChange,
   onSubmit,
+  onClose,
 }: UploadPanelProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -32,11 +34,22 @@ export function UploadPanel({
   }
 
   return (
-    <section className="w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-surface p-5 shadow-[var(--shadow-card)]">
+    <section className="relative w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-surface px-4 pb-4 pt-11 shadow-[var(--shadow-card)] sm:px-5 sm:pb-5 sm:pt-12">
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={isBusy}
+        className="absolute left-3 top-3 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-surface-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:left-4 sm:top-4"
+        aria-label="Close syllabus upload"
+        title="Close syllabus upload"
+      >
+        <ArrowLeft className="size-3.5" aria-hidden />
+      </button>
+
       <form onSubmit={handleSubmit} className="space-y-4" aria-busy={isBusy}>
         <label
           className={cx(
-            "flex min-h-44 flex-col items-center justify-center rounded-[var(--radius-xl)] border border-dashed border-border bg-surface-muted px-5 py-8 text-center transition",
+            "flex min-h-40 flex-col items-center justify-center rounded-[var(--radius-xl)] border border-dashed border-border bg-surface-muted px-5 py-7 text-center transition sm:min-h-44 sm:py-8",
             isBusy
               ? "cursor-not-allowed opacity-70"
               : "cursor-pointer hover:border-border-strong",

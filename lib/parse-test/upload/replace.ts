@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   createProcessingRun,
+  findExistingCompletedCourseForUser,
   getCompletedSyllabusParseCache,
   getParseTestViewModelForRun,
   getUserParseTestRuns,
@@ -37,6 +38,24 @@ async function loadViewModelOrThrow(userId: string, runId: string) {
   }
 
   return viewModel;
+}
+
+function createExistingClassMessage(params: {
+  courseCode: string | null;
+  courseSection: string | null;
+  term: string | null;
+}) {
+  const classLabel = [
+    params.courseCode,
+    params.courseSection ? `Section ${params.courseSection}` : null,
+    params.term,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return classLabel
+    ? `${classLabel} already exists in your account.`
+    : "This class already exists in your account.";
 }
 
 export async function replaceParseTestWithUpload(params: {
@@ -93,20 +112,12 @@ export async function replaceParseTestWithUpload(params: {
     }
 
     if (duplicateRun) {
-      log("Found an existing completed class with the same file hash. Reusing the saved SQL preview.");
-      logParseTestStep("User-owned duplicate hash found; reusing existing class.", {
+      log("Found an existing completed class with the same file hash.");
+      logParseTestStep("Blocked upload because this exact syllabus already exists in this account.", {
         runId: duplicateRun.id,
         contentHashPrefix: contentHash.slice(0, 12),
       });
-      const viewModel = await getParseTestViewModelForRun(userId, duplicateRun.id);
-
-      if (viewModel) {
-        log("Loaded the saved preview from SQL.");
-        logParseTestStep("Loaded user-owned duplicate preview.", {
-          runId: duplicateRun.id,
-        });
-        return { isDuplicate: true, runId: duplicateRun.id, viewModel, logs };
-      }
+      throw new ParseTestError("This syllabus has already been uploaded for a class in your account.", 409);
     }
 
     const cachedParse = await getCompletedSyllabusParseCache(contentHash);
@@ -115,6 +126,26 @@ export async function replaceParseTestWithUpload(params: {
       cacheHit: Boolean(cachedParse),
     });
     if (cachedParse) {
+      const existingClass = await findExistingCompletedCourseForUser(userId, cachedParse.payload);
+      if (existingClass) {
+        log("This class already exists in your account.");
+        logParseTestStep("Blocked shared-cache upload because the class already exists in this account.", {
+          existingRunId: existingClass.runId,
+          courseCode: existingClass.courseCode,
+          courseSection: existingClass.courseSection,
+          term: existingClass.term,
+          instructorName: existingClass.instructorName,
+        });
+        throw new ParseTestError(
+          createExistingClassMessage({
+            courseCode: existingClass.courseCode,
+            courseSection: existingClass.courseSection,
+            term: existingClass.term,
+          }),
+          409,
+        );
+      }
+
       log("Found this syllabus in the shared parse cache. Creating a class copy for this account.");
       logParseTestStep("Shared cache hit; creating user-owned class copy.", {
         contentHashPrefix: contentHash.slice(0, 12),
@@ -239,6 +270,26 @@ export async function replaceParseTestWithUpload(params: {
         error: error instanceof Error ? error.message : "Unknown error",
       });
       log("Nebula lookup failed. Continuing with the syllabus parse only.");
+    }
+
+    const existingClass = await findExistingCompletedCourseForUser(userId, mergedPayload);
+    if (existingClass) {
+      log("This class already exists in your account.");
+      logParseTestStep("Blocked parsed upload because the class already exists in this account.", {
+        existingRunId: existingClass.runId,
+        courseCode: existingClass.courseCode,
+        courseSection: existingClass.courseSection,
+        term: existingClass.term,
+        instructorName: existingClass.instructorName,
+      });
+      throw new ParseTestError(
+        createExistingClassMessage({
+          courseCode: existingClass.courseCode,
+          courseSection: existingClass.courseSection,
+          term: existingClass.term,
+        }),
+        409,
+      );
     }
 
     await markSyllabusParseCacheCompleted({

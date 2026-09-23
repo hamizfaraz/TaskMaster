@@ -175,6 +175,10 @@ export function ParseTestClient() {
     });
   }
 
+  function closeUpload() {
+    router.back();
+  }
+
   const isBusy = isUploading || isNavigating;
 
   return (
@@ -187,6 +191,7 @@ export function ParseTestClient() {
         fileInputKey={fileInputKey}
         onFileChange={handleFileChange}
         onSubmit={handleSubmit}
+        onClose={closeUpload}
       />
 
       {parsedUpload ? (

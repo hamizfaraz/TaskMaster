@@ -47,6 +47,99 @@ export async function getUserParseTestRuns(userId: string) {
     .orderBy(desc(parseTestRun.updatedAt));
 }
 
+function normalizeClassIdentity(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeInstructorLastName(value: string | null | undefined) {
+  const words = (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return words.at(-1) ?? "";
+}
+
+function isSameClassIdentity(
+  candidate: {
+    courseCode: string | null;
+    courseSection: string | null;
+    term: string | null;
+    instructorName: string | null;
+  },
+  payload: ParseTestPayload,
+) {
+  const candidateCode = normalizeClassIdentity(candidate.courseCode);
+  const candidateSection = normalizeClassIdentity(candidate.courseSection);
+  const candidateTerm = normalizeClassIdentity(candidate.term);
+  const payloadCode = normalizeClassIdentity(payload.courseCode);
+  const payloadSection = normalizeClassIdentity(payload.courseSection);
+  const payloadTerm = normalizeClassIdentity(payload.term);
+
+  if (!candidateCode || !candidateSection || !candidateTerm) {
+    return false;
+  }
+
+  if (!payloadCode || !payloadSection || !payloadTerm) {
+    return false;
+  }
+
+  if (
+    candidateCode !== payloadCode ||
+    candidateSection !== payloadSection ||
+    candidateTerm !== payloadTerm
+  ) {
+    return false;
+  }
+
+  const candidateInstructor = normalizeInstructorLastName(candidate.instructorName);
+  const payloadInstructor = normalizeInstructorLastName(payload.instructorName);
+  if (candidateInstructor && payloadInstructor) {
+    return candidateInstructor === payloadInstructor;
+  }
+
+  return true;
+}
+
+export async function findExistingCompletedCourseForUser(
+  userId: string,
+  payload: ParseTestPayload,
+) {
+  const rows = await db
+    .select({
+      runId: parseTestRun.id,
+      title: parseTestCourse.title,
+      courseCode: parseTestCourse.courseCode,
+      courseSection: parseTestCourse.courseSection,
+      term: parseTestCourse.term,
+      instructorName: parseTestCourse.instructorName,
+    })
+    .from(parseTestRun)
+    .innerJoin(parseTestCourse, eq(parseTestCourse.runId, parseTestRun.id))
+    .where(
+      and(
+        eq(parseTestRun.userId, userId),
+        eq(parseTestRun.parseStatus, "completed"),
+      ),
+    )
+    .orderBy(desc(parseTestRun.updatedAt));
+
+  return (
+    rows.find((row) =>
+      isSameClassIdentity(
+        {
+          courseCode: row.courseCode,
+          courseSection: row.courseSection,
+          term: row.term,
+          instructorName: row.instructorName,
+        },
+        payload,
+      ),
+    ) ?? null
+  );
+}
+
 export async function createProcessingRun(params: {
   runId: string;
   userId: string;
