@@ -22,6 +22,7 @@ export function ParseTestClient() {
   const [isNavigating, startTransition] = useTransition();
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [parsedUpload, setParsedUpload] = useState<ParsedUpload | null>(null);
@@ -132,6 +133,8 @@ export function ParseTestClient() {
     } catch (submissionError) {
       setProgress(0);
       setStatusText(null);
+      setSelectedFileName(null);
+      setFileInputKey((current) => current + 1);
       toast.error(
         submissionError instanceof Error
           ? submissionError.message
@@ -181,6 +184,7 @@ export function ParseTestClient() {
         isBusy={isBusy}
         statusText={statusText}
         progress={progress}
+        fileInputKey={fileInputKey}
         onFileChange={handleFileChange}
         onSubmit={handleSubmit}
       />

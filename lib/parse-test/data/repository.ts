@@ -9,10 +9,19 @@ import {
   parseTestEvent,
   parseTestGradingItem,
   parseTestRun,
+  nebulaCourseSection,
+  syllabusParseCache,
 } from "@/lib/db/schema";
-import type { ParseStatus, ParseTestPayload, ParseTestReviewUpdate, ParseTestViewModel } from "../contracts";
+import {
+  parseTestPayloadSchema,
+  type ParseStatus,
+  type ParseTestPayload,
+  type ParseTestReviewUpdate,
+  type ParseTestViewModel,
+} from "../contracts";
 import { getParseTestModel } from "../feature";
 import { isHighSignalWarning, normalisePercent, parseIsoDate } from "../normalize";
+import type { toNebulaCourseSectionCacheRow } from "@/lib/nebula/match";
 
 async function getRunById(userId: string, runId: string) {
   const runs = await db
@@ -58,6 +67,126 @@ export async function createProcessingRun(params: {
     parseModel: params.parseModel,
     warnings: [],
   });
+}
+
+export async function getCompletedSyllabusParseCache(contentHash: string) {
+  const [row] = await db
+    .select()
+    .from(syllabusParseCache)
+    .where(
+      and(
+        eq(syllabusParseCache.contentHash, contentHash),
+        eq(syllabusParseCache.parseStatus, "completed"),
+      ),
+    )
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  const payloadCandidate = row.mergedPayload ?? row.parsedPayload;
+  const parsedPayload = parseTestPayloadSchema.safeParse(payloadCandidate);
+  if (!parsedPayload.success) {
+    return null;
+  }
+
+  return {
+    ...row,
+    payload: parsedPayload.data,
+  };
+}
+
+export async function upsertNebulaCourseSectionCache(
+  values: ReturnType<typeof toNebulaCourseSectionCacheRow>,
+) {
+  await db
+    .insert(nebulaCourseSection)
+    .values(values)
+    .onConflictDoUpdate({
+      target: nebulaCourseSection.id,
+      set: {
+        subjectPrefix: values.subjectPrefix,
+        courseNumber: values.courseNumber,
+        courseTitle: values.courseTitle,
+        sectionNumber: values.sectionNumber,
+        academicSessionName: values.academicSessionName,
+        academicSessionStartDate: values.academicSessionStartDate,
+        academicSessionEndDate: values.academicSessionEndDate,
+        professorNames: values.professorNames,
+        professorEmails: values.professorEmails,
+        instructionMode: values.instructionMode,
+        meetingSummary: values.meetingSummary,
+        syllabusUri: values.syllabusUri,
+        raw: values.raw,
+        fetchedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+}
+
+export async function markSyllabusParseCacheProcessing(params: {
+  contentHash: string;
+  fileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  parseModel: string;
+}) {
+  const inserted = await db
+    .insert(syllabusParseCache)
+    .values({
+      contentHash: params.contentHash,
+      parseStatus: "processing",
+      originalFileName: params.fileName,
+      mimeType: params.mimeType,
+      fileSizeBytes: params.fileSizeBytes,
+      parseModel: params.parseModel,
+      warnings: [],
+    })
+    .onConflictDoNothing({
+      target: syllabusParseCache.contentHash,
+    })
+    .returning();
+
+  return inserted.length > 0;
+}
+
+export async function markSyllabusParseCacheCompleted(params: {
+  contentHash: string;
+  geminiFileUri: string;
+  parsedPayload: ParseTestPayload;
+  mergedPayload: ParseTestPayload;
+  nebulaSectionId: string | null;
+  nebulaMatchConfidence: number | null;
+}) {
+  await db
+    .update(syllabusParseCache)
+    .set({
+      parseStatus: "completed",
+      geminiFileUri: params.geminiFileUri,
+      parsedPayload: params.parsedPayload,
+      mergedPayload: params.mergedPayload,
+      nebulaSectionId: params.nebulaSectionId,
+      nebulaMatchConfidence: params.nebulaMatchConfidence,
+      errorMessage: null,
+      warnings: params.mergedPayload.warnings,
+      updatedAt: new Date(),
+    })
+    .where(eq(syllabusParseCache.contentHash, params.contentHash));
+}
+
+export async function markSyllabusParseCacheFailed(params: {
+  contentHash: string;
+  message: string;
+}) {
+  await db
+    .update(syllabusParseCache)
+    .set({
+      parseStatus: "failed",
+      errorMessage: params.message,
+      updatedAt: new Date(),
+    })
+    .where(eq(syllabusParseCache.contentHash, params.contentHash));
 }
 
 export async function persistCompletedParse(params: {

@@ -251,6 +251,82 @@ export const parseTestRun = pgTable(
   ],
 );
 
+export const nebulaCourseSection = pgTable(
+  "nebula_course_sections",
+  {
+    id: text("id").primaryKey(),
+    subjectPrefix: text("subject_prefix"),
+    courseNumber: text("course_number"),
+    courseTitle: text("course_title"),
+    sectionNumber: text("section_number"),
+    academicSessionName: text("academic_session_name"),
+    academicSessionStartDate: text("academic_session_start_date"),
+    academicSessionEndDate: text("academic_session_end_date"),
+    professorNames: text("professor_names")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    professorEmails: text("professor_emails")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    instructionMode: text("instruction_mode"),
+    meetingSummary: text("meeting_summary"),
+    syllabusUri: text("syllabus_uri"),
+    raw: jsonb("raw").notNull(),
+    fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("nebula_course_sections_course_idx").on(
+      table.subjectPrefix,
+      table.courseNumber,
+    ),
+    index("nebula_course_sections_session_idx").on(table.academicSessionName),
+  ],
+);
+
+export const syllabusParseCache = pgTable(
+  "syllabus_parse_cache",
+  {
+    contentHash: text("content_hash").primaryKey(),
+    parseStatus: text("parse_status", {
+      enum: ["processing", "completed", "failed"],
+    })
+      .notNull()
+      .default("processing"),
+    originalFileName: text("original_file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull(),
+    parseModel: text("parse_model").notNull(),
+    geminiFileUri: text("gemini_file_uri"),
+    nebulaSectionId: text("nebula_section_id").references(
+      () => nebulaCourseSection.id,
+      { onDelete: "set null" },
+    ),
+    nebulaMatchConfidence: doublePrecision("nebula_match_confidence"),
+    parsedPayload: jsonb("parsed_payload"),
+    mergedPayload: jsonb("merged_payload"),
+    errorMessage: text("error_message"),
+    warnings: text("warnings")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("syllabus_parse_cache_status_idx").on(table.parseStatus),
+    index("syllabus_parse_cache_nebula_section_idx").on(table.nebulaSectionId),
+  ],
+);
+
 export const parseTestCourse = pgTable(
   "parse_test_course",
   {
@@ -480,6 +556,23 @@ export const parseTestRunRelations = relations(parseTestRun, ({ one }) => ({
     references: [parseTestCourse.runId],
   }),
 }));
+
+export const nebulaCourseSectionRelations = relations(
+  nebulaCourseSection,
+  ({ many }) => ({
+    syllabusCaches: many(syllabusParseCache),
+  }),
+);
+
+export const syllabusParseCacheRelations = relations(
+  syllabusParseCache,
+  ({ one }) => ({
+    nebulaSection: one(nebulaCourseSection, {
+      fields: [syllabusParseCache.nebulaSectionId],
+      references: [nebulaCourseSection.id],
+    }),
+  }),
+);
 
 export const parseTestCourseRelations = relations(
   parseTestCourse,

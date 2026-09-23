@@ -1,5 +1,5 @@
-import type { ChangeEvent } from "react";
-import { Upload } from "lucide-react";
+import type { ChangeEvent, FormEvent } from "react";
+import { Loader2, Upload } from "lucide-react";
 import { getButtonClassName } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 
@@ -8,6 +8,7 @@ type UploadPanelProps = {
   isBusy: boolean;
   statusText: string | null;
   progress: number;
+  fileInputKey: number;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (formData: FormData) => Promise<void>;
 };
@@ -17,27 +18,50 @@ export function UploadPanel({
   isBusy,
   statusText,
   progress,
+  fileInputKey,
   onFileChange,
   onSubmit,
 }: UploadPanelProps) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isBusy) {
+      return;
+    }
+
+    void onSubmit(new FormData(event.currentTarget));
+  }
+
   return (
     <section className="w-full max-w-md rounded-[var(--radius-xl)] border border-border bg-surface p-5 shadow-[var(--shadow-card)]">
-      <form action={onSubmit} className="space-y-4">
-        <label className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-[var(--radius-xl)] border border-dashed border-border bg-surface-muted px-5 py-8 text-center transition hover:border-border-strong">
+      <form onSubmit={handleSubmit} className="space-y-4" aria-busy={isBusy}>
+        <label
+          className={cx(
+            "flex min-h-44 flex-col items-center justify-center rounded-[var(--radius-xl)] border border-dashed border-border bg-surface-muted px-5 py-8 text-center transition",
+            isBusy
+              ? "cursor-not-allowed opacity-70"
+              : "cursor-pointer hover:border-border-strong",
+          )}
+        >
           <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-foreground text-background">
-            <Upload className="h-5 w-5" aria-hidden />
+            {isBusy ? (
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            ) : (
+              <Upload className="h-5 w-5" aria-hidden />
+            )}
           </span>
           <span className="mt-4 text-base font-semibold text-foreground">
-            Upload syllabus
+            {isBusy ? "Processing syllabus" : "Upload syllabus"}
           </span>
           <span className="mt-1 max-w-72 text-sm leading-6 text-muted-foreground">
-            Choose a PDF to create your class.
+            {isBusy ? "Keep this page open while the class is created." : "Choose a PDF to create your class."}
           </span>
           <input
+            key={fileInputKey}
             className="sr-only"
             type="file"
             name="file"
             accept="application/pdf"
+            disabled={isBusy}
             onChange={onFileChange}
           />
         </label>
@@ -49,14 +73,14 @@ export function UploadPanel({
         ) : null}
 
         {isBusy ? (
-          <div className="space-y-2" aria-live="polite">
+          <div className="min-h-[3.75rem] space-y-2" aria-live="polite">
             <div className="h-2 overflow-hidden rounded-full bg-surface-elevated">
               <div
                 className="h-full rounded-full bg-accent transition-all duration-500"
                 style={{ width: `${Math.max(8, Math.min(progress, 100))}%` }}
               />
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
               {statusText ?? "Processing syllabus..."}
             </p>
           </div>
@@ -65,9 +89,20 @@ export function UploadPanel({
         <button
           type="submit"
           disabled={isBusy}
-          className={cx(getButtonClassName("primary"), "w-full")}
+          className={cx(
+            getButtonClassName("primary"),
+            "w-full",
+            isBusy ? "bg-surface-elevated text-muted-foreground shadow-none hover:opacity-100" : "",
+          )}
         >
-          {isBusy ? "Uploading..." : "Upload syllabus"}
+          {isBusy ? (
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Processing syllabus...
+            </>
+          ) : (
+            "Upload syllabus"
+          )}
         </button>
       </form>
     </section>
