@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const DEFAULT_NEBULA_API_BASE_URL = "https://api.utdnebula.com";
 const MAX_SECTION_PAGES = 8;
+const NEBULA_SECTION_PAGE_SIZE = 20;
 
 const nebulaLocationSchema = z.object({
   building: z.string().nullable().optional(),
@@ -82,7 +83,14 @@ const nebulaCourseSectionsResponseSchema = z.object({
   status: z.number().optional(),
 });
 
+const nebulaProfessorResponseSchema = z.object({
+  data: z.union([nebulaProfessorSchema, z.string()]),
+  message: z.string().optional(),
+  status: z.number().optional(),
+});
+
 export type NebulaCourseSection = z.infer<typeof nebulaCourseSectionSchema>;
+export type NebulaProfessor = z.infer<typeof nebulaProfessorSchema>;
 
 export type SearchCourseSectionsParams = {
   subjectPrefix: string;
@@ -118,6 +126,10 @@ function buildCourseSectionsUrl(
   return url;
 }
 
+function buildProfessorUrl(baseUrl: string, professorId: string) {
+  return new URL(`/professor/${professorId}`, baseUrl);
+}
+
 async function fetchCourseSectionsPage(
   config: { apiKey: string; baseUrl: string },
   params: SearchCourseSectionsParams & {
@@ -134,7 +146,8 @@ async function fetchCourseSectionsPage(
 
   const body = await response.json().catch(() => null);
   const parsed = nebulaCourseSectionsResponseSchema.safeParse(body);
-  if (!response.ok || !parsed.success || typeof parsed.data.data === "string") {
+
+  if (!response.ok || !parsed.success) {
     const message =
       parsed.success && typeof parsed.data.data === "string"
         ? parsed.data.data
@@ -144,7 +157,85 @@ async function fetchCourseSectionsPage(
     throw new Error(message || `Nebula course section lookup failed (${response.status})`);
   }
 
+  const data = parsed.data.data;
+  if (typeof data === "string") {
+    console.info("[Nebula] Course section lookup reached terminal response.", {
+      message: data,
+      status: parsed.data.status,
+    });
+    return [];
+  }
+
+  return data;
+}
+
+const professorLookupCache = new Map<string, Promise<NebulaProfessor | null>>();
+
+async function fetchNebulaProfessorByIdUncached(professorId: string) {
+  const config = getNebulaConfig();
+  if (!config) {
+    return null;
+  }
+
+  const response = await fetch(buildProfessorUrl(config.baseUrl, professorId), {
+    headers: {
+      "x-api-key": config.apiKey,
+      Accept: "application/json",
+    },
+  });
+
+  const body = await response.json().catch(() => null);
+  const parsed = nebulaProfessorResponseSchema.safeParse(body);
+
+  if (!response.ok || !parsed.success || typeof parsed.data.data === "string") {
+    console.info("[Nebula] Professor lookup failed.", {
+      professorId,
+      status: response.status,
+    });
+    return null;
+  }
+
   return parsed.data.data;
+}
+
+export function fetchNebulaProfessorById(professorId: string) {
+  const trimmedId = professorId.trim();
+  if (!trimmedId) {
+    return Promise.resolve(null);
+  }
+
+  const cached = professorLookupCache.get(trimmedId);
+  if (cached) {
+    return cached;
+  }
+
+  const lookup = fetchNebulaProfessorByIdUncached(trimmedId);
+  professorLookupCache.set(trimmedId, lookup);
+  return lookup;
+}
+
+export async function hydrateNebulaSectionProfessorDetails(
+  section: NebulaCourseSection,
+): Promise<NebulaCourseSection> {
+  if (section.professor_details.length > 0 || section.professors.length === 0) {
+    return section;
+  }
+
+  const professorIds = Array.from(
+    new Set(section.professors.map((id) => id.trim()).filter(Boolean)),
+  );
+  const professorDetails = (
+    await Promise.all(professorIds.map((id) => fetchNebulaProfessorById(id)))
+  ).filter((professor): professor is NebulaProfessor => Boolean(professor));
+
+  if (professorDetails.length === 0) {
+    return section;
+  }
+
+  return {
+    ...section,
+    professor_details: professorDetails,
+  };
 }
 
 export async function searchNebulaCourseSections(
@@ -188,7 +279,11 @@ export async function searchNebulaCourseSections(
       totalSections: sections.length,
     });
 
-    if (pageSections.length === 0 || newSections.length === 0) {
+    if (
+      pageSections.length === 0 ||
+      pageSections.length < NEBULA_SECTION_PAGE_SIZE ||
+      newSections.length === 0
+    ) {
       break;
     }
 

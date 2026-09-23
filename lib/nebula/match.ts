@@ -1,6 +1,9 @@
 import type { ParseTestPayload } from "@/lib/parse-test/contracts";
 import type { NebulaCourseSection } from "./client";
-import { searchNebulaCourseSections } from "./client";
+import {
+  hydrateNebulaSectionProfessorDetails,
+  searchNebulaCourseSections,
+} from "./client";
 
 export type NebulaSectionMatch = {
   section: NebulaCourseSection;
@@ -20,6 +23,38 @@ function normalizeWords(value: string | null | undefined) {
     .replace(/[^a-z0-9\s]+/g, " ")
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function normalizeTerm(value: string | null | undefined) {
+  const rawValue = value ?? "";
+  const compactMatch = rawValue
+    .toLowerCase()
+    .match(/\b(?:(\d{2}|\d{4})\s*([fsuw])|([fsuw])\s*(\d{2}|\d{4}))\b/);
+
+  if (compactMatch) {
+    const yearText = compactMatch[1] ?? compactMatch[4] ?? "";
+    const seasonCode = compactMatch[2] ?? compactMatch[3] ?? "";
+    const year =
+      yearText.length === 2 ? `20${yearText}` : yearText;
+    const seasonByCode: Record<string, string> = {
+      f: "fall",
+      s: "spring",
+      u: "summer",
+      w: "winter",
+    };
+
+    return {
+      year,
+      season: seasonByCode[seasonCode] ?? null,
+    };
+  }
+
+  const words = normalizeWords(rawValue);
+  const year = words.find((word) => /^\d{4}$/.test(word)) ?? null;
+  const seasons = ["spring", "summer", "fall", "winter"];
+  const season = words.find((word) => seasons.includes(word)) ?? null;
+
+  return { year, season };
 }
 
 function parseCourseCode(payload: ParseTestPayload) {
@@ -70,23 +105,14 @@ function getProfessorEmails(section: NebulaCourseSection) {
 }
 
 function hasTermMatch(payloadTerm: string | null, nebulaTerm: string | null | undefined) {
-  const payloadWords = normalizeWords(payloadTerm);
-  const nebulaWords = normalizeWords(nebulaTerm);
-  if (payloadWords.length === 0 || nebulaWords.length === 0) {
+  const payload = normalizeTerm(payloadTerm);
+  const nebula = normalizeTerm(nebulaTerm);
+
+  if (!payload.year || !payload.season || !nebula.year || !nebula.season) {
     return false;
   }
 
-  const payloadYears = payloadWords.filter((word) => /^\d{4}$/.test(word));
-  const nebulaYears = nebulaWords.filter((word) => /^\d{4}$/.test(word));
-  const seasons = ["spring", "summer", "fall", "winter"];
-  const payloadSeason = payloadWords.find((word) => seasons.includes(word));
-  const nebulaSeason = nebulaWords.find((word) => seasons.includes(word));
-
-  return Boolean(
-    payloadYears.some((year) => nebulaYears.includes(year)) &&
-      payloadSeason &&
-      payloadSeason === nebulaSeason,
-  );
+  return payload.year === nebula.year && payload.season === nebula.season;
 }
 
 function hasProfessorMatch(payloadInstructor: string | null, professorNames: string[]) {
@@ -100,6 +126,56 @@ function hasProfessorMatch(payloadInstructor: string | null, professorNames: str
     const words = normalizeWords(name);
     return words.includes(payloadLastName);
   });
+}
+
+function isLikelyRoomReference(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return /\b[A-Z]{1,6}\s*\d+\.\d+\b/i.test(trimmed) || /\b\d+\.\d+\b/.test(trimmed);
+}
+
+function getMeetingLocationValues(section: NebulaCourseSection) {
+  return section.meetings.flatMap((meeting) => {
+    const location = meeting.location;
+    if (!location) {
+      return [];
+    }
+
+    return [
+      formatLocation(location),
+      location.building,
+      location.room,
+    ].filter((value): value is string => Boolean(value?.trim()));
+  });
+}
+
+function hasMeetingLocationMatch(payload: ParseTestPayload, section: NebulaCourseSection) {
+  const payloadLocations = [
+    payload.meetingLocation,
+    isLikelyRoomReference(payload.courseSection) ? payload.courseSection : null,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map(normalize)
+    .filter(Boolean);
+
+  if (payloadLocations.length === 0) {
+    return false;
+  }
+
+  return getMeetingLocationValues(section)
+    .map(normalize)
+    .filter(Boolean)
+    .some((nebulaLocation) =>
+      payloadLocations.some(
+        (payloadLocation) =>
+          nebulaLocation === payloadLocation ||
+          nebulaLocation.endsWith(payloadLocation) ||
+          nebulaLocation.includes(payloadLocation),
+      ),
+    );
 }
 
 function scoreSection(payload: ParseTestPayload, section: NebulaCourseSection) {
@@ -118,6 +194,11 @@ function scoreSection(payload: ParseTestPayload, section: NebulaCourseSection) {
   if (payloadSection && nebulaSection && payloadSection === nebulaSection) {
     confidence += 45;
     reasons.push("section number matched");
+  }
+
+  if (hasMeetingLocationMatch(payload, section)) {
+    confidence += 20;
+    reasons.push("meeting location matched");
   }
 
   if (hasTermMatch(payload.term, section.academic_session?.name)) {
@@ -160,6 +241,23 @@ function summarizeMeetings(section: NebulaCourseSection) {
     })
     .filter(Boolean)
     .join("; ");
+}
+
+function summarizeCandidate(match: NebulaSectionMatch) {
+  const detail = getCourseDetail(match.section);
+  const professorNames = getProfessorNames(match.section);
+
+  return {
+    confidence: match.confidence,
+    reasons: match.reasons,
+    nebulaSectionId: match.section._id,
+    sectionNumber: match.section.section_number,
+    term: match.section.academic_session?.name,
+    courseTitle: detail?.title,
+    professorNames,
+    professorIds: match.section.professors,
+    meetings: summarizeMeetings(match.section),
+  };
 }
 
 export function toNebulaCourseSectionCacheRow(section: NebulaCourseSection) {
@@ -230,7 +328,7 @@ export async function findBestNebulaSectionForPayload(
   }
 
   const sections = await searchNebulaCourseSections(courseCode);
-  const matches = sections
+  const initialMatches = sections
     .map((section) => {
       const scored = scoreSection(payload, section);
       return {
@@ -241,10 +339,76 @@ export async function findBestNebulaSectionForPayload(
     })
     .toSorted((a, b) => b.confidence - a.confidence);
 
+  const hydratedSections = new Map<string, NebulaCourseSection>();
+  const hydrationCandidates = initialMatches
+    .filter((match) => match.confidence >= 20)
+    .slice(0, 50);
+
+  await Promise.all(
+    hydrationCandidates.map(async (match) => {
+      const hydrated = await hydrateNebulaSectionProfessorDetails(match.section);
+      hydratedSections.set(hydrated._id, hydrated);
+    }),
+  );
+
+  const matches = sections
+    .map((section) => {
+      const sectionForScoring = hydratedSections.get(section._id) ?? section;
+      const scored = scoreSection(payload, sectionForScoring);
+      return {
+        section: sectionForScoring,
+        confidence: scored.confidence,
+        reasons: scored.reasons,
+      };
+    })
+    .toSorted((a, b) => b.confidence - a.confidence);
+
   const best = matches[0] ?? null;
   if (!best || best.confidence < 35) {
+    console.info("[Nebula] No confident section match. Top candidates:", {
+      payload: {
+        courseCode: payload.courseCode,
+        courseSection: payload.courseSection,
+        term: payload.term,
+        instructorName: payload.instructorName,
+        meetingLocation: payload.meetingLocation,
+      },
+      candidates: matches.slice(0, 8).map(summarizeCandidate),
+    });
     return null;
   }
+
+  const competingMatches = matches.filter(
+    (match) => match.section._id !== best.section._id && match.confidence === best.confidence,
+  );
+  const hasStrongDisambiguator =
+    best.reasons.includes("section number matched") ||
+    best.reasons.includes("meeting location matched");
+
+  if (competingMatches.length > 0 && !hasStrongDisambiguator) {
+    console.info("[Nebula] Section match was ambiguous. Top candidates:", {
+      payload: {
+        courseCode: payload.courseCode,
+        courseSection: payload.courseSection,
+        term: payload.term,
+        instructorName: payload.instructorName,
+        meetingLocation: payload.meetingLocation,
+      },
+      candidates: [best, ...competingMatches].slice(0, 8).map(summarizeCandidate),
+    });
+    return null;
+  }
+
+  console.info("[Nebula] Section match selected.", {
+    payload: {
+      courseCode: payload.courseCode,
+      courseSection: payload.courseSection,
+      term: payload.term,
+      instructorName: payload.instructorName,
+      meetingLocation: payload.meetingLocation,
+    },
+    candidate: summarizeCandidate(best),
+  });
 
   return best;
 }

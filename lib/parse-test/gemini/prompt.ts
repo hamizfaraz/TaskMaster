@@ -18,7 +18,8 @@ Rules:
 - contacts should include the primary instructor and all teaching assistants when the syllabus provides them.
 - Use role values like Professor and TA when applicable.
 - contacts may omit email, officeHours, or location only when the syllabus does not provide them.
-- courseSection should capture the section identifier when present.
+- courseSection should capture the official section identifier when present, such as 001, 502, or 0W1.
+- Do not put classroom, building, or room numbers in courseSection; put those in meetingLocation.
 - requiredMaterials should include textbooks, readers, software, websites, or source material the syllabus requires or strongly expects.
 - homeworkTools should include homework or class platforms like Canvas, Gradescope, Blackboard, WebAssign, Piazza, or specific coding tools when they are explicitly named.
 - gradingBreakdown should include the major categories and weights only when the syllabus explicitly gives them.

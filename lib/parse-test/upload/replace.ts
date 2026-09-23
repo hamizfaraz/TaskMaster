@@ -126,7 +126,63 @@ export async function replaceParseTestWithUpload(params: {
       cacheHit: Boolean(cachedParse),
     });
     if (cachedParse) {
-      const existingClass = await findExistingCompletedCourseForUser(userId, cachedParse.payload);
+      let cachedPayload = cachedParse.payload;
+      let cachedNebulaSectionId = cachedParse.nebulaSectionId;
+      let cachedNebulaMatchConfidence = cachedParse.nebulaMatchConfidence;
+
+      if (!cachedNebulaSectionId) {
+        try {
+          log("Retrying Nebula metadata lookup for the cached syllabus parse.");
+          logParseTestStep("Retrying Nebula match for shared cache without section metadata.", {
+            contentHashPrefix: contentHash.slice(0, 12),
+            courseCode: cachedPayload.courseCode,
+            courseSection: cachedPayload.courseSection,
+            term: cachedPayload.term,
+            instructorName: cachedPayload.instructorName,
+          });
+          const nebulaMatch = await findBestNebulaSectionForPayload(cachedPayload);
+          if (nebulaMatch) {
+            const cacheRow = toNebulaCourseSectionCacheRow(nebulaMatch.section);
+            await upsertNebulaCourseSectionCache(cacheRow);
+            cachedPayload = applyNebulaSectionToPayload(cachedPayload, nebulaMatch.section);
+            cachedNebulaSectionId = nebulaMatch.section._id;
+            cachedNebulaMatchConfidence = nebulaMatch.confidence;
+            await markSyllabusParseCacheCompleted({
+              contentHash,
+              geminiFileUri: cachedParse.geminiFileUri ?? "",
+              parsedPayload: cachedParse.payload,
+              mergedPayload: cachedPayload,
+              nebulaSectionId: cachedNebulaSectionId,
+              nebulaMatchConfidence: cachedNebulaMatchConfidence,
+            });
+            logParseTestStep("Shared cache Nebula metadata refreshed.", {
+              contentHashPrefix: contentHash.slice(0, 12),
+              nebulaSectionId: cachedNebulaSectionId,
+              confidence: cachedNebulaMatchConfidence,
+              reasons: nebulaMatch.reasons,
+              nebulaCourse: `${cacheRow.subjectPrefix ?? ""} ${cacheRow.courseNumber ?? ""}`.trim(),
+              nebulaSection: cacheRow.sectionNumber,
+              nebulaTerm: cacheRow.academicSessionName,
+              nebulaProfessors: cacheRow.professorNames,
+            });
+          } else {
+            logParseTestStep("Shared cache Nebula retry found no confident match.", {
+              contentHashPrefix: contentHash.slice(0, 12),
+              courseCode: cachedPayload.courseCode,
+              courseSection: cachedPayload.courseSection,
+              term: cachedPayload.term,
+            });
+          }
+        } catch (error) {
+          console.error("[ParseTest Nebula cache retry]", error);
+          logParseTestStep("Shared cache Nebula retry failed; using cached parse only.", {
+            contentHashPrefix: contentHash.slice(0, 12),
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      }
+
+      const existingClass = await findExistingCompletedCourseForUser(userId, cachedPayload);
       if (existingClass) {
         log("This class already exists in your account.");
         logParseTestStep("Blocked shared-cache upload because the class already exists in this account.", {
@@ -150,8 +206,8 @@ export async function replaceParseTestWithUpload(params: {
       logParseTestStep("Shared cache hit; creating user-owned class copy.", {
         contentHashPrefix: contentHash.slice(0, 12),
         parseModel: cachedParse.parseModel,
-        nebulaSectionId: cachedParse.nebulaSectionId,
-        nebulaMatchConfidence: cachedParse.nebulaMatchConfidence,
+        nebulaSectionId: cachedNebulaSectionId,
+        nebulaMatchConfidence: cachedNebulaMatchConfidence,
       });
       runId = randomUUID();
       await createProcessingRun({
@@ -166,7 +222,7 @@ export async function replaceParseTestWithUpload(params: {
       await persistCompletedParse({
         runId,
         geminiFileUri: cachedParse.geminiFileUri ?? "",
-        payload: cachedParse.payload,
+        payload: cachedPayload,
       });
 
       const viewModel = await loadViewModelOrThrow(userId, runId);

@@ -102,6 +102,7 @@ function extractCandidateSyllabusText(fileName: string, fileBuffer: Buffer) {
 function scoreSyllabusSignals(fileNameText: string, documentText: string): SyllabusValidationResult {
   const signalGroups = [
     { label: "syllabus", weight: 4, pattern: /\bsyllabus\b/i },
+    { label: "syllabus abbreviation", weight: 2, pattern: /\bsyl\b/i },
     { label: "course description", weight: 3, pattern: /\bcourse\s+description\b/i },
     { label: "grading policy", weight: 3, pattern: /\bgrading(?:\s+policy)?\b/i },
     { label: "office hours", weight: 3, pattern: /\boffice\s+hours\b/i },
@@ -152,9 +153,10 @@ function scoreSyllabusSignals(fileNameText: string, documentText: string): Sylla
     /\b(?:resume|curriculum vitae|cv)\b/i.test(fileNameText) ||
     /\b(?:resume|curriculum vitae)\b/i.test(documentText);
   const isLikelySyllabus =
-    (!hasNegativeResumeSignal && hasFilenameSyllabus) ||
-    score >= 8 ||
-    (hasSyllabusSignal && hasAdditionalAcademicSignal);
+    !hasNegativeResumeSignal &&
+    (hasFilenameSyllabus ||
+      score >= 8 ||
+      (hasSyllabusSignal && hasAdditionalAcademicSignal));
 
   return {
     isLikelySyllabus,
