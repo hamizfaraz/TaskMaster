@@ -1,5 +1,18 @@
 # Important-point highlighting — plan
 
+> **Status: §6 (manual highlighting) is built.** Highlights can be applied,
+> are read back out, render everywhere, and reach generation. §7
+> (auto-detection) is untouched and still needs the decision in §8.1.
+>
+> #89's acceptance criterion — "a note with highlights produces a measurably
+> different deck than the same note without them" — was verified against the
+> live generator. Twelve facts, three cards, so the generator must choose:
+>
+> | | highlighted fact selected |
+> |---|---|
+> | without the highlight | 0 of 3 runs |
+> | with the highlight | 3 of 3 runs, always as card #1 |
+
 Covers [#7](https://github.com/hamizfaraz/TaskMaster/issues/7) (detect and
 highlight key elements), [#89](https://github.com/hamizfaraz/TaskMaster/issues/89)
 (weight highlights during generation), and the acceptance criterion of
