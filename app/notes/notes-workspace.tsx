@@ -713,6 +713,7 @@ export function NotesWorkspace({
     const note = notes.find((n) => n.id === noteId);
     if (!note || note.classId === groupClassId || isTempNote(noteId)) return;
 
+    const previousClassId = note.classId;
     setNotes((current) =>
       current.map((n) =>
         n.id === noteId ? { ...n, classId: groupClassId } : n,
@@ -721,6 +722,11 @@ export function NotesWorkspace({
     startTransition(
       () =>
         void saveNote(noteId, { classId: groupClassId }).catch((err) => {
+          // Without this the sidebar keeps showing the note under a class it
+          // was never filed into.
+          setNotes((current) =>
+            current.map((n) => (n.id === noteId ? { ...n, classId: previousClassId } : n)),
+          );
           toast.error("Could not move note", {
             description: err instanceof Error ? err.message : undefined,
             duration: 5000,
@@ -764,21 +770,54 @@ export function NotesWorkspace({
 
   async function handleBulkDelete() {
     if (sidebarSelectedIds.size === 0) return;
-    const ids = [...sidebarSelectedIds];
+    // A note whose creation is still in flight cannot be deleted server-side,
+    // and removing it locally would only have it reappear when the POST
+    // resolves. Single-note delete already refuses these.
+    const ids = [...sidebarSelectedIds].filter((id) => !isTempNote(id));
+    if (ids.length === 0) {
+      clearSidebarSelect();
+      return;
+    }
 
+    const removed = notes.filter((n) => ids.includes(n.id));
     setNotes((current) => current.filter((n) => !ids.includes(n.id)));
     if (selectedNote && ids.includes(selectedNote.id)) {
       setSelectedId(notes.find((n) => !ids.includes(n.id))?.id ?? null);
     }
     clearSidebarSelect();
 
-    await Promise.allSettled(
-      ids.map(
-        (id) =>
-          !isTempNote(id) && fetch(`/api/notes/${id}`, { method: "DELETE" }),
-      ),
+    const toastId = toast.loading(
+      `Deleting ${ids.length} note${ids.length === 1 ? "" : "s"}...`,
+      { duration: Infinity },
     );
-    // On partial failure we could restore, but for now just log
+
+    // `fetch` resolves on 4xx/5xx, so the status has to be checked explicitly
+    // or a failed delete looks identical to a successful one.
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const response = await fetch(`/api/notes/${id}`, { method: "DELETE" });
+          return response.ok ? null : id;
+        } catch {
+          return id;
+        }
+      }),
+    );
+
+    const failed = results.filter((id): id is string => id !== null);
+    if (failed.length === 0) {
+      toast.success(`Deleted ${ids.length} note${ids.length === 1 ? "" : "s"}`, { id: toastId });
+      return;
+    }
+
+    // Put back exactly the ones that did not delete.
+    const restored = removed.filter((n) => failed.includes(n.id));
+    setNotes((current) => sortWorkspaceNotes([...restored, ...current]));
+    toast.error(`Could not delete ${failed.length} of ${ids.length} notes`, {
+      id: toastId,
+      description: "They have been restored to the list.",
+      duration: 6000,
+    });
   }
 
   async function handleBulkDuplicate() {
@@ -818,16 +857,29 @@ export function NotesWorkspace({
               ...current.filter((n) => n.id !== temp.id),
             ]),
           );
-        } catch {
+        } catch (error) {
           setNotes((current) => current.filter((n) => n.id !== temp.id));
+          toast.error(`Could not duplicate "${source.title}"`, {
+            description: error instanceof Error ? error.message : undefined,
+            duration: 5000,
+          });
         }
       }),
     );
   }
 
-  function handleBulkMove(targetClassId: string | null) {
+  async function handleBulkMove(targetClassId: string | null) {
     if (sidebarSelectedIds.size === 0) return;
-    const ids = [...sidebarSelectedIds];
+    const ids = [...sidebarSelectedIds].filter((id) => !isTempNote(id));
+    if (ids.length === 0) {
+      clearSidebarSelect();
+      return;
+    }
+
+    // Remember where each note was so a failure can put it back.
+    const previousClassIds = new Map(
+      notes.filter((n) => ids.includes(n.id)).map((n) => [n.id, n.classId]),
+    );
 
     setNotes((current) =>
       current.map((n) =>
@@ -836,11 +888,32 @@ export function NotesWorkspace({
     );
     clearSidebarSelect();
 
-    for (const id of ids) {
-      if (!isTempNote(id)) {
-        void saveNote(id, { classId: targetClassId }).catch(console.error);
-      }
+    const failed = (
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await saveNote(id, { classId: targetClassId });
+            return null;
+          } catch {
+            return id;
+          }
+        }),
+      )
+    ).filter((id): id is string => id !== null);
+
+    if (failed.length === 0) {
+      return;
     }
+
+    setNotes((current) =>
+      current.map((n) =>
+        failed.includes(n.id) ? { ...n, classId: previousClassIds.get(n.id) ?? null } : n,
+      ),
+    );
+    toast.error(`Could not move ${failed.length} of ${ids.length} notes`, {
+      description: "They have been returned to their previous class.",
+      duration: 6000,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1201,7 +1274,7 @@ export function NotesWorkspace({
                           sidebarSelectedIds.has(draggedNoteId) &&
                           sidebarSelectedIds.size > 1
                         ) {
-                          handleBulkMove(group.classId);
+                          void handleBulkMove(group.classId);
                         } else {
                           handleNoteDrop(group.classId, draggedNoteId);
                         }
@@ -1319,7 +1392,7 @@ export function NotesWorkspace({
                     <div className="absolute bottom-full left-0 mb-1 w-full overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-[var(--shadow-card)]">
                       <button
                         type="button"
-                        onClick={() => handleBulkMove(null)}
+                        onClick={() => void handleBulkMove(null)}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                       >
                         <Folder
@@ -1332,7 +1405,7 @@ export function NotesWorkspace({
                         <button
                           key={cls.id}
                           type="button"
-                          onClick={() => handleBulkMove(cls.id)}
+                          onClick={() => void handleBulkMove(cls.id)}
                           title={getClassLabel(cls)}
                           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                         >
