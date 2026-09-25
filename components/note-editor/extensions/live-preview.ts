@@ -113,7 +113,10 @@ const codeLine = Decoration.line({ class: "cm-note-code-line" });
 const tableLine = Decoration.line({ class: "cm-note-table-line" });
 const highlightMark = Decoration.mark({ class: "cm-note-highlight" });
 
-const HIGHLIGHT_RE = /==([^=\n]+?)==/g;
+// Must match `HIGHLIGHT_RE` in lib/notes/highlights.ts: the editor and the
+// extractor have to agree about what counts as a highlight. A single `=` is
+// allowed inside, `==` is not.
+const HIGHLIGHT_RE = /==((?:[^=\n]|=(?!=))+?)==/g;
 
 /** Lines that contain a cursor or selection show their raw syntax. */
 function activeLines(state: EditorState) {

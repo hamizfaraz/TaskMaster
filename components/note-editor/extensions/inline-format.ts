@@ -73,6 +73,8 @@ export const toggleBold = toggleInlineMarker("**");
 export const toggleItalic = toggleInlineMarker("*");
 export const toggleInlineCode = toggleInlineMarker("`");
 export const toggleStrikethrough = toggleInlineMarker("~~");
+/** Obsidian's `==highlight==`. Read back by `lib/notes/highlights.ts`. */
+export const toggleHighlight = toggleInlineMarker("==");
 
 /**
  * Installed with `keymap.of` ahead of `defaultKeymap` so `Mod-i` reaches
@@ -85,5 +87,6 @@ export function inlineFormatKeymap() {
     // Mod-e belongs to the math field (see extensions/math-widgets.ts).
     { key: "Mod-Shift-c", run: toggleInlineCode, preventDefault: true },
     { key: "Mod-Shift-x", run: toggleStrikethrough, preventDefault: true },
+    { key: "Mod-Shift-h", run: toggleHighlight, preventDefault: true },
   ]);
 }

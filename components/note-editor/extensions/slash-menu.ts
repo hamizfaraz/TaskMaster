@@ -112,6 +112,7 @@ export const slashCommands: readonly Completion[] = ([
   { label: "/divider", displayLabel: "Divider", type: "divider", detail: "Horizontal rule", apply: insertBlock("---", 3) },
   { label: "/math block", displayLabel: "Math block", type: "math", detail: "Display equation", apply: insertBlock("$$\n\n$$", 3, openMath) },
   { label: "/inline math", displayLabel: "Inline math", type: "inline-math", detail: "Formula in the text", apply: insertInline("$$", 1, openMath) },
+  { label: "/highlight", displayLabel: "Highlight", type: "highlight", detail: "Mark an important point", apply: insertInline("====", 2) },
 ] satisfies Completion[]).map((command, index) => ({
   // Equally good matches sort alphabetically; a boost keeps this list's order.
   ...command,
