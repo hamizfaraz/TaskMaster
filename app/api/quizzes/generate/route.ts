@@ -7,7 +7,7 @@ import {
   quizDifficulties,
   quizQuestionTypes,
 } from "@/lib/quizzes/gemini";
-import { getQuizContextNotes } from "@/lib/quizzes/context";
+import { getNoteContext } from "@/lib/notes/context";
 
 export const runtime = "nodejs";
 
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid quiz generation options" }, { status: 400 });
   }
 
-  const contextNotes = await getQuizContextNotes({
+  const contextNotes = await getNoteContext({
     userId: session.user.id,
     noteIds: parsed.data.noteIds,
   });
