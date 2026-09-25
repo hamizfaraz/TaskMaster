@@ -1,8 +1,9 @@
 # Important-point highlighting — plan
 
-> **Status: §6 (manual highlighting) is built.** Highlights can be applied,
-> are read back out, render everywhere, and reach generation. §7
-> (auto-detection) is untouched and still needs the decision in §8.1.
+> **Status: built, including suggestions.** Highlights can be applied, are
+> read back out, render everywhere, and reach generation (§6). The note also
+> suggests its own key points, and it does so **without a model** — see the
+> correction to §3 below.
 >
 > #89's acceptance criterion — "a note with highlights produces a measurably
 > different deck than the same note without them" — was verified against the
@@ -109,11 +110,34 @@ already-flooded maths notes further toward 100%. That is the usual rule-based
 dead end: precision and recall move in opposite directions and neither reaches
 useful.
 
-**Conclusion.** Reliable *automatic* detection of what matters needs semantic
-judgement. A deterministic detector cannot separate "this proposition is the
-point of the note" from "this is the fourth of nine propositions". What *is*
-reliable deterministically is finding every formula — but that is precisely the
-signal that floods.
+**Conclusion — and a correction.** The conclusion first drawn here was that
+automatic detection needs a model, because a deterministic detector cannot
+separate "this proposition is the point of the note" from "this is the fourth
+of nine propositions".
+
+That was wrong, and wrong in an instructive way: the detector measured above
+only *classified*. It never *ranked*. Every rule fired at a fixed weight, and
+everything that fired was marked.
+
+Importance is relative to the note. Weight a signal in inverse proportion to
+how often it fires in the note it appears in — ordinary inverse-document-
+frequency reasoning applied within one document — and "is a proposition"
+collapses to near-zero weight in a page of forty propositions while staying
+strong evidence in a page of prose. Add a per-note budget and the flooding
+cannot happen by construction.
+
+With ranking, over the same 52 notes:
+
+| | classify only | classify and rank |
+|---|---|---|
+| share of note text marked | 44% | **10%** |
+| worst single note | 97% | **32%** |
+| finds "called the **handle**" | no | **yes** |
+| finds "union by size guarantees…" | no | **yes** |
+
+So the model is not needed for this. What remains true from the measurement is
+narrower: *unranked* rules flood, and finding every formula is easy but
+useless.
 
 ---
 
@@ -235,40 +259,50 @@ is met. #7 remains open on auto-detection alone.
 
 ---
 
-## 7. If auto-detection goes ahead
+## 7. What was built for suggestions
 
-Only the parts that change.
+`lib/notes/detect-highlights.ts`, pure and unit-tested.
 
-- **Detector.** One model call per note, run on save behind the same freshness
-  throttle the embedding work introduced, or on demand from a "find key points"
-  action. It returns spans with kinds and confidences; the per-note budget from
-  Q3 caps what surfaces.
-- **Storage.** Cached beside the block document in `content`, keyed by a hash of
-  the markdown so a stale detection is detectable. Never merged into the user's
-  text.
-- **Presentation.** Detections render differently from user highlights — a
-  dotted underline rather than a filled mark — because one is a suggestion and
-  the other is a decision. Accepting a suggestion converts it into a real
-  `==…==` in the markdown, which is how the two stay distinguishable.
-- **Cost.** One call per note per edit window. The same argument that removed
-  the model from active recall does not apply here: there, the model was doing a
-  judgement the user should make for themselves, and a free local matcher was
-  good enough for the rest. Here the automatic judgement *is* the requirement,
-  and §3 shows the free version cannot make it.
+**Candidates.** Blocks carrying at least one signal: a bold-led claim
+(`**Theorem.**`, `**Definition.**`, …), a named claim (`**Theorem (Abel's
+Theorem).**`), defining prose ("is called", "is defined as", "if and only if"),
+a result or bound ("guarantees", "proves", "complexity is", "never exceeds"), a
+short bold term, a term appearing for the first time, or opening a section.
 
-A deterministic fallback is still worth keeping for formulas specifically, since
-display math is detected perfectly at zero cost. It just cannot be the whole
-feature.
+**Scoring.** `base(signal) × log(1 + candidates / (1 + firings))`. The second
+factor is the whole trick: a signal that fires in nearly every candidate is
+worth nearly nothing. Long spans are discounted; ties break on document order so
+the earliest statement of an idea wins and the output is stable.
+
+**Budget.** At most a quarter of the blocks, capped at eight, and nothing at all
+below four blocks — a note that short has nothing to rank against.
+
+**Display math is never suggested.** `==…==` is inline syntax and cannot wrap a
+multi-line `$$` block, so such a suggestion could never be accepted. This
+surfaced only by testing the accept path: 24 of 115 suggestions failed it. All
+103 now round-trip — the offsets slice exactly, and accepting produces a
+highlight the extractor reads back.
+
+**The feature.** A "Key points" toggle beside Source/Preview, off by default.
+When on, suggestions appear as dotted underlines and a click accepts one,
+wrapping it in `==…==` as a single undo step. Detection runs in the browser over
+a document already in memory, so there is no request, no cost, and no delay, and
+a point stops being suggested once it is highlighted. Nothing is written until
+the user clicks: a suggestion is a dotted underline, a highlight is a decision.
 
 ---
 
 ## 8. Decisions needed
 
-1. **Auto-detection: model, or drop it from #7?** §3 is the evidence that there
-   is no cheap third option. Manual highlighting (§6) is worth shipping either
-   way, and does not depend on this.
-2. **`unist-util-visit` as a dependency**, or walk the tree by hand in the
-   remark plugin? About 1 KB against about twenty extra lines.
+1. ~~Auto-detection: model or drop it?~~ **Resolved: neither.** Ranking made a
+   deterministic detector good enough, so #7's highlighting half is met without
+   a model. Whether a model would do *better* is now an optimisation, not a
+   blocker.
+2. ~~`unist-util-visit` as a dependency?~~ **Resolved:** the tree is walked by
+   hand; no dependency added.
 3. **Split #7.** Multi-topic detection and split suggestions are a separate
    feature sharing an issue with highlighting. They should be their own issue
-   before either is planned properly.
+   before either is planned properly. **Still open.**
+4. **Tune the signal weights?** They are hand-set and measured only against one
+   52-note corpus, which is one person's subjects. Worth revisiting once other
+   people's notes exist.
