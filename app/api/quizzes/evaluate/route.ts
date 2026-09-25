@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ evaluation });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Answer evaluation failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[POST /api/quizzes/evaluate]", error);
+    return NextResponse.json({ error: "Answer evaluation failed" }, { status: 500 });
   }
 }

@@ -95,17 +95,22 @@ export async function POST(req: Request) {
     );
   }
 
-  const [created] = await db
-    .insert(note)
-    .values({
-      userId: session.user.id,
-      title,
-      classId,
-      content: content.document,
-      markdown: content.markdown,
-      sourceType: "manual",
-    })
-    .returning();
+  try {
+    const [created] = await db
+      .insert(note)
+      .values({
+        userId: session.user.id,
+        title,
+        classId,
+        content: content.document,
+        markdown: content.markdown,
+        sourceType: "manual",
+      })
+      .returning();
 
-  return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    console.error("[POST /api/notes]", error);
+    return NextResponse.json({ error: "Could not create the note." }, { status: 500 });
+  }
 }

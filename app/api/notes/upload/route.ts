@@ -6,6 +6,9 @@ import { note } from "@/lib/db/schema";
 import { generateTopicNotesFromFile, markdownToNoteDocument } from "@/lib/notes/generation";
 
 export const runtime = "nodejs";
+// Azure polls for up to ~60s and two Gemini calls follow it. Without this the
+// platform default can kill the handler *after* all the paid work is done.
+export const maxDuration = 300;
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
@@ -97,48 +100,61 @@ export async function POST(req: Request) {
       mimeType: file.type,
     });
   } catch (error) {
+    // Never surface the raw message: it carries Zod issue JSON, Azure response
+    // bodies, and environment-variable names.
+    console.error("[POST /api/notes/upload] generation failed", error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to generate notes from the uploaded file.",
-      },
+      { error: "Could not generate notes from that file." },
       { status: 502 },
     );
   }
 
-  const created = await db
-    .insert(note)
-    .values(
-      generated.topics.map((topic, index) => ({
-        userId: session.user.id,
-        title:
-          generated.topics.length === 1 ? title : `${title} - ${topic.title}`,
-        classId,
-        sourceType: "upload" as const,
-        fileName: file.name,
-        mimeType: file.type,
-        fileSize: file.size,
-        embedding: topic.embedding,
-        markdown: topic.markdown,
-        content: {
-          ...markdownToNoteDocument(topic.markdown),
-          noteGeneration: {
-            fileName: file.name,
-            sourceTitle: title,
-            topicTitle: topic.title,
-            topicIndex: index,
-            topicCount: generated.topics.length,
-            markdown: topic.markdown,
-            embedding: topic.embedding,
-            embeddingDimensions: topic.embedding.length,
-            embeddingModel: process.env.GEMINI_EMBEDDINGS_MODEL,
+  // A DB failure here would silently discard 30-90s of paid Azure + Gemini
+  // work, so it is guarded and reported rather than falling through to a
+  // generic 500.
+  const insertNotes = () =>
+    db
+      .insert(note)
+      .values(
+        generated.topics.map((topic, index) => ({
+          userId: session.user.id,
+          title:
+            generated.topics.length === 1 ? title : `${title} - ${topic.title}`,
+          classId,
+          sourceType: "upload" as const,
+          fileName: file.name,
+          mimeType: file.type,
+          fileSize: file.size,
+          embedding: topic.embedding,
+          markdown: topic.markdown,
+          content: {
+            ...markdownToNoteDocument(topic.markdown),
+            noteGeneration: {
+              fileName: file.name,
+              sourceTitle: title,
+              topicTitle: topic.title,
+              topicIndex: index,
+              topicCount: generated.topics.length,
+              markdown: topic.markdown,
+              embedding: topic.embedding,
+              embeddingDimensions: topic.embedding.length,
+              embeddingModel: process.env.GEMINI_EMBEDDINGS_MODEL,
+            },
           },
-        },
-      })),
-    )
-    .returning();
+        })),
+      )
+      .returning();
+
+  let created: Awaited<ReturnType<typeof insertNotes>>;
+  try {
+    created = await insertNotes();
+  } catch (error) {
+    console.error("[POST /api/notes/upload] insert failed after generation", error);
+    return NextResponse.json(
+      { error: "The file was processed but the notes could not be saved. Please try again." },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json(
     {

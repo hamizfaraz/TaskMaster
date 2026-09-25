@@ -105,13 +105,18 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     );
   }
 
-  const [updated] = await db
-    .update(note)
-    .set(updates)
-    .where(and(eq(note.id, id), eq(note.userId, session.user.id)))
-    .returning();
+  try {
+    const [updated] = await db
+      .update(note)
+      .set(updates)
+      .where(and(eq(note.id, id), eq(note.userId, session.user.id)))
+      .returning();
 
-  return NextResponse.json(updated);
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("[PATCH /api/notes/:id]", error);
+    return NextResponse.json({ error: "Could not save the note." }, { status: 500 });
+  }
 }
 
 // DELETE /api/notes/:id
