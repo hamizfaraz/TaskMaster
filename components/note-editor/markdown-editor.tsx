@@ -18,6 +18,7 @@ import { livePreview } from "@/components/note-editor/extensions/live-preview";
 import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
+import { inlineFormatKeymap } from "@/components/note-editor/extensions/inline-format";
 
 function previewExtensions(sourceMode: boolean) {
   return sourceMode ? [] : [livePreview(), mathWidgets()];
@@ -162,6 +163,9 @@ export default function MarkdownEditor({
           uploadCompartment.of(imageDrop(uploadImage)),
           previewCompartment.of(previewExtensions(sourceMode)),
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
+          // Ahead of defaultKeymap so Mod-i reaches italics rather than
+          // selectParentSyntax.
+          inlineFormatKeymap(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((update) => {
             if (
