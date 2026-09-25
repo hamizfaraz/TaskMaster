@@ -35,7 +35,22 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
     .where(eq(note.userId, session.user.id))
     .orderBy(desc(note.updatedAt));
 
-  const initialNotes = sortWorkspaceNotes(rows.map((row) => noteRecordToWorkspaceNote(row)));
+  // The client never reads a note's vector, and shipping 768 floats per note
+  // into the RSC payload costs roughly 1.5 MB at 100 notes. The embedding is
+  // still read above so `hasEmbedding`-style derivations stay correct; only
+  // the vector itself is dropped before it crosses the wire.
+  const initialNotes = sortWorkspaceNotes(
+    rows.map((row) => {
+      const workspaceNote = noteRecordToWorkspaceNote(row);
+      return {
+        ...workspaceNote,
+        embedding: workspaceNote.embedding && workspaceNote.embedding.length > 0 ? [] : workspaceNote.embedding,
+        generation: workspaceNote.generation
+          ? { ...workspaceNote.generation, embedding: [] }
+          : workspaceNote.generation,
+      };
+    }),
+  );
   const classSummaries = await listUserClasses(session.user.id);
   const classes = classSummaries.map((item) => ({
     id: item.courseId,

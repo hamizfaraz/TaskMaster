@@ -37,6 +37,7 @@ import {
   type WorkspaceNote,
 } from "@/lib/notes/records";
 import { NoteEditor } from "@/components/note-editor/note-editor";
+import { PermanentSaveError } from "@/components/note-editor/use-autosave";
 
 type WorkspaceClass = {
   id: string;
@@ -326,7 +327,11 @@ export function NotesWorkspace({
       | { error?: string }
       | null;
     if (!response.ok) {
-      throw new Error(payload?.error || "The notes request failed.");
+      const message = payload?.error || "The notes request failed.";
+      // 404/403 mean the note is gone or not ours: retrying can never work.
+      throw response.status === 404 || response.status === 403
+        ? new PermanentSaveError(message)
+        : new Error(message);
     }
     return noteRecordToWorkspaceNote(payload as NoteRecord);
   }

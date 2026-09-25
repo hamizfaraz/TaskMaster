@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
+import type { NoteDocument } from "@/lib/notes/types";
 import { and, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
@@ -19,6 +20,22 @@ async function getUserNote(userId: string, noteId: string) {
     .where(and(eq(note.id, noteId), eq(note.userId, userId)))
     .limit(1);
   return found ?? null;
+}
+
+/**
+ * Uploaded notes keep their provenance — source file, topic index, the
+ * original generated markdown and its embedding — under `noteGeneration`
+ * inside the same `content` column that holds the derived block cache.
+ * Replacing the column on every autosave destroyed it permanently, so
+ * anything that is not the block document is carried across.
+ */
+function preserveGenerationMetadata(existingContent: unknown, nextDocument: NoteDocument) {
+  if (!existingContent || typeof existingContent !== "object" || Array.isArray(existingContent)) {
+    return nextDocument;
+  }
+
+  const generation = (existingContent as { noteGeneration?: unknown }).noteGeneration;
+  return generation === undefined ? nextDocument : { ...nextDocument, noteGeneration: generation };
 }
 
 // GET /api/notes/:id
@@ -66,7 +83,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     // Canonical path: markdown is stored as authored; blocks are derived.
     try {
       const content = normalizeNoteWriteMarkdown(body.markdown);
-      updates.content = content.document;
+      updates.content = preserveGenerationMetadata(existing.content, content.document);
       updates.markdown = content.markdown;
     } catch {
       return NextResponse.json({ error: "Invalid note markdown" }, { status: 400 });
@@ -74,7 +91,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
   } else if (body.content !== undefined) {
     try {
       const content = normalizeNoteWriteContent(body.content);
-      updates.content = content.document;
+      updates.content = preserveGenerationMetadata(existing.content, content.document);
       updates.markdown = content.markdown;
     } catch {
       return NextResponse.json(
