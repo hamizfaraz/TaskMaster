@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { remarkHighlight } from "@/lib/notes/remark-highlight";
 import { cx } from "@/lib/utils";
 
 type LatexMarkdownProps = {
@@ -21,7 +22,9 @@ export function LatexMarkdown({
     <div className={cx("min-w-0 text-foreground", className)}>
       <ReactMarkdown
         rehypePlugins={[rehypeKatex]}
-        remarkPlugins={[remarkGfm, remarkMath]}
+        // remarkHighlight must follow remarkMath so `$a == b$` is already a
+        // math node and cannot be split as a highlight.
+        remarkPlugins={[remarkGfm, remarkMath, remarkHighlight]}
         components={{
           p: ({ children }) => <p>{children}</p>,
           ul: ({ children }) => (
@@ -37,6 +40,11 @@ export function LatexMarkdown({
             </strong>
           ),
           em: ({ children }) => <em className="italic">{children}</em>,
+          mark: ({ children }) => (
+            <mark className="rounded-[0.2em] bg-accent-soft px-0.5 text-foreground">
+              {children}
+            </mark>
+          ),
           code: ({ children, className: markdownCodeClassName }) => (
             <code
               className={cx(
