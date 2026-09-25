@@ -23,7 +23,6 @@ import type {
 } from "@/lib/notes/types";
 import { normalizeLatex } from "@/lib/math/latex";
 import { isInlineMathCandidate } from "@/lib/notes/math-ranges";
-import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,7 +81,15 @@ export function renderInlineMarkdownText(line: string): string {
     return token;
   };
 
-  const withCodeTokens = line.replace(/`([^`\r\n]+?)`/g, (_match, code: string) =>
+  // Backslash escapes first: `\*` is a literal asterisk and must not take part
+  // in emphasis matching, or `\*\*Author:\*\*` becomes `\<em>\</em>Author:`
+  // and Turndown then re-escapes the stray backslashes on every save, doubling
+  // them each time.
+  const withEscapeTokens = line.replace(
+    /\\[\\`*_{}[\]()#+\-.!|~]/g,
+    (match) => stash(escapeHtmlText(match)),
+  );
+  const withCodeTokens = withEscapeTokens.replace(/`([^`\r\n]+?)`/g, (_match, code: string) =>
     stash(`<code>${escapeHtmlText(code)}</code>`),
   );
   const withMathTokens = processInlineMath(withCodeTokens).replace(
@@ -352,5 +359,11 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
     }
   }
 
-  return normalizeNoteLatexRegions({ time: Date.now(), blocks });
+  // The markdown path must NOT run the legacy LaTeX region detector. That
+  // detector exists for the block path, where rich text could contain
+  // *undelimited* LaTeX. Here math already arrives delimited as `$…$` / `$$…$$`
+  // and has been wrapped by `renderInlineMarkdownText`. Running it anyway
+  // flattened the rich text (destroying every bold on a line that also held
+  // math) and promoted ordinary prose into display-math blocks.
+  return { time: Date.now(), blocks };
 }
