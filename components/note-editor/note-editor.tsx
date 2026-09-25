@@ -1,12 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, Code2, Eye, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Check, Code2, Eye, Loader2, Sparkles } from "lucide-react";
 import { BlockMenu } from "@/components/note-editor/block-menu";
 import type { ImageUploader } from "@/components/note-editor/extensions/image-drop";
 import type { ActiveLineRect, MarkdownEditorHandle } from "@/components/note-editor/markdown-editor";
 import { useAutosave, type AutosaveStatus } from "@/components/note-editor/use-autosave";
+import { countSuggestions } from "@/components/note-editor/extensions/highlight-suggestions";
 import { isTempNoteId } from "@/lib/notes/records";
 import { cx } from "@/lib/utils";
 
@@ -91,6 +92,7 @@ export function NoteEditor({
   className,
 }: NoteEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeLine, setActiveLine] = useState<ActiveLineRect | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const { status, draft, latest, notifyChange, flush, retry } = useAutosave({
@@ -129,6 +131,14 @@ export function NoteEditor({
     }
   }, [noteId, flush]);
 
+  // Detection is pure text work over a document already in memory, so the
+  // count is computed here rather than fetched. Only while the layer is on:
+  // there is no reason to scan a document nobody asked about.
+  const suggestionCount = useMemo(
+    () => (showSuggestions ? countSuggestions(value) : 0),
+    [showSuggestions, value],
+  );
+
   const handleChange = (next: string) => {
     if (!readOnly) {
       notifyChange(next);
@@ -137,7 +147,28 @@ export function NoteEditor({
 
   return (
     <div className={cx("relative", className)}>
-      <div className="mb-2 flex justify-end">
+      <div className="mb-2 flex justify-end gap-2">
+        {!readOnly ? (
+          <button
+            type="button"
+            onClick={() => setShowSuggestions((current) => !current)}
+            aria-pressed={showSuggestions}
+            title={
+              showSuggestions
+                ? "Hide suggested key points"
+                : "Underline the points this note suggests are worth highlighting"
+            }
+            className={cx(
+              "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition",
+              showSuggestions
+                ? "border-accent/40 bg-accent-soft text-accent"
+                : "border-border bg-surface text-muted-foreground hover:border-border-strong hover:text-foreground",
+            )}
+          >
+            <Sparkles className="size-3.5" />
+            {suggestionCount > 0 ? `${suggestionCount} key points` : "Key points"}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setSourceMode((current) => !current)}
@@ -165,6 +196,7 @@ export function NoteEditor({
           onChange={handleChange}
           readOnly={readOnly}
           sourceMode={sourceMode}
+          showSuggestions={showSuggestions}
           uploadImage={uploadImage}
           autoFocus={!readOnly}
         />

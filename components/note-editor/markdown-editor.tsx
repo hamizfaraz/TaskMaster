@@ -19,6 +19,7 @@ import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 import { inlineFormatKeymap } from "@/components/note-editor/extensions/inline-format";
+import { highlightSuggestions } from "@/components/note-editor/extensions/highlight-suggestions";
 
 function previewExtensions(sourceMode: boolean) {
   return sourceMode ? [] : [livePreview(), mathWidgets()];
@@ -60,6 +61,8 @@ export type MarkdownEditorProps = {
   readOnly?: boolean;
   /** Show raw Markdown everywhere instead of live preview. */
   sourceMode?: boolean;
+  /** Underline the points the text suggests are worth highlighting. */
+  showSuggestions?: boolean;
   /** Handles dropped/pasted image files; defaults to an inline data URL. */
   uploadImage?: ImageUploader;
   placeholder?: string;
@@ -78,6 +81,7 @@ export default function MarkdownEditor({
   onChange,
   readOnly = false,
   sourceMode = false,
+  showSuggestions = false,
   uploadImage,
   placeholder = "Start writing…",
   autoFocus = false,
@@ -89,6 +93,7 @@ export default function MarkdownEditor({
   const readOnlyCompartment = useRef(new Compartment()).current;
   const previewCompartment = useRef(new Compartment()).current;
   const uploadCompartment = useRef(new Compartment()).current;
+  const suggestionCompartment = useRef(new Compartment()).current;
   const onActiveLineChangeRef = useRef(onActiveLineChange);
   const lastActiveLineKeyRef = useRef("");
   onChangeRef.current = onChange;
@@ -162,6 +167,7 @@ export default function MarkdownEditor({
           slashMenu(),
           uploadCompartment.of(imageDrop(uploadImage)),
           previewCompartment.of(previewExtensions(sourceMode)),
+          suggestionCompartment.of(highlightSuggestions(showSuggestions)),
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
           // Ahead of defaultKeymap so Mod-i reaches italics rather than
           // selectParentSyntax.
@@ -235,6 +241,12 @@ export default function MarkdownEditor({
       effects: uploadCompartment.reconfigure(imageDrop(uploadImage)),
     });
   }, [uploadImage, uploadCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: suggestionCompartment.reconfigure(highlightSuggestions(showSuggestions)),
+    });
+  }, [showSuggestions, suggestionCompartment]);
 
   return <div ref={hostRef} className={className} data-testid="markdown-editor" />;
 }
