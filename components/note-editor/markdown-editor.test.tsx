@@ -1,7 +1,9 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { tags } from "@lezer/highlight";
 import MarkdownEditor from "@/components/note-editor/markdown-editor";
+import { codeHighlightStyle, markdownHighlightStyle } from "@/components/note-editor/extensions/theme";
 
 const sample = [
   "# Primes",
@@ -98,5 +100,29 @@ describe("MarkdownEditor", () => {
 
     expect(host.querySelectorAll(".cm-note-math").length).toBe(0);
     expect(host.querySelectorAll(".cm-note-bullet").length).toBe(0);
+  });
+});
+
+describe("code fence highlighting", () => {
+  // `markdown({ codeLanguages })` parses a fence into a real syntax tree, but
+  // the Markdown style defines no code tags, so nothing painted that tree and
+  // every fence rendered in one flat colour. The fix is a fallback style that
+  // does cover them.
+  const codeTags = [tags.keyword, tags.string, tags.number, tags.comment];
+
+  it("the markdown style alone does not cover code tokens", () => {
+    for (const tag of codeTags) {
+      expect(markdownHighlightStyle.style([tag])).toBeNull();
+    }
+  });
+
+  it("the fallback style does cover them", () => {
+    for (const tag of codeTags) {
+      expect(codeHighlightStyle.style([tag])).toBeTruthy();
+    }
+  });
+
+  it("keeps markdown typography: headings stay owned by the markdown style", () => {
+    expect(markdownHighlightStyle.style([tags.heading1])).toBeTruthy();
   });
 });

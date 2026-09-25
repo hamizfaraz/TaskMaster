@@ -17,7 +17,7 @@ import { imageDrop, type ImageUploader } from "@/components/note-editor/extensio
 import { livePreview } from "@/components/note-editor/extensions/live-preview";
 import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
-import { editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
+import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 
 function previewExtensions(sourceMode: boolean) {
   return sourceMode ? [] : [livePreview(), mathWidgets()];
@@ -155,6 +155,7 @@ export default function MarkdownEditor({
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           markdownHighlight,
+          codeHighlight,
           editorTheme,
           placeholderExtension(placeholder),
           slashMenu(),
