@@ -102,6 +102,31 @@ describe("normalizeNoteLatexRegions", () => {
     ]);
   });
 
+  it("leaves prose alone even when it looks operator-heavy", () => {
+    // Each of these was promoted to a display-math block by the old rule and
+    // re-serialized as `$$…$$`, destroying the text.
+    const prose = [
+      "In C, a == b tests equality.",
+      "Highlight: ==key idea==",
+      "**b^2:** squared.",
+      "\\* \\*\\*Author:\\*\\* A. N. Other",
+      "*   **Proposition.** $\\mathbb{Q}$ is countable.",
+      "where $E_n = O(h^2)$ as $h \\to 0$.",
+      "- Solution in integers of $ax + by = c$.",
+      "> A quote with $x$ in it.",
+      "Use `a -> b` here.",
+    ];
+
+    for (const text of prose) {
+      const document: NoteDocument = { time: 1, blocks: [{ type: "paragraph", data: { text } }] };
+      // Inline `$…$` may still become an inlineMath block — that is this
+      // function's job on the block path. What must never happen is the whole
+      // line being swallowed into a display-math block.
+      const types = normalizeNoteLatexRegions(document).blocks.map((block) => block.type);
+      expect(types, `promoted to display math: ${text}`).not.toContain("math");
+    }
+  });
+
   it("converts standalone raw LaTeX lines", () => {
     const document: NoteDocument = {
       time: 1,
