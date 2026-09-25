@@ -6,6 +6,7 @@ import { note } from "@/lib/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
+import { embedNote } from "@/lib/notes/embedding";
 
 export const runtime = "nodejs";
 
@@ -95,6 +96,11 @@ export async function POST(req: Request) {
     );
   }
 
+  // A note created with text (duplicate, .md import) is embedded up front. The
+  // common empty-note case costs nothing: embedNote returns null for blank
+  // markdown and the first real save embeds it.
+  const embedding = await embedNote({ title, markdown: content.markdown });
+
   try {
     const [created] = await db
       .insert(note)
@@ -105,6 +111,7 @@ export async function POST(req: Request) {
         content: content.document,
         markdown: content.markdown,
         sourceType: "manual",
+        ...(embedding ? { embedding, embeddingUpdatedAt: new Date() } : {}),
       })
       .returning();
 

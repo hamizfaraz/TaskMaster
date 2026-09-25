@@ -7,6 +7,7 @@ import type { NoteDocument } from "@/lib/notes/types";
 import { and, eq } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
+import { embedNote, shouldReembed } from "@/lib/notes/embedding";
 
 export const runtime = "nodejs";
 
@@ -120,6 +121,26 @@ export async function PATCH(req: Request, ctx: RouteContext) {
       { error: "No valid fields to update" },
       { status: 400 },
     );
+  }
+
+  // Nothing used to embed a note on create or update, so notes written in the
+  // editor never got a vector at all and edited uploads kept one describing
+  // their previous text. Refresh here, throttled, and never let a failure take
+  // the save down with it.
+  const nextMarkdown = typeof updates.markdown === "string" ? updates.markdown : null;
+  if (
+    nextMarkdown !== null &&
+    nextMarkdown !== existing.markdown &&
+    shouldReembed({ embedding: existing.embedding, embeddingUpdatedAt: existing.embeddingUpdatedAt })
+  ) {
+    const embedding = await embedNote({
+      title: typeof updates.title === "string" ? updates.title : existing.title,
+      markdown: nextMarkdown,
+    });
+    if (embedding) {
+      updates.embedding = embedding;
+      updates.embeddingUpdatedAt = new Date();
+    }
   }
 
   try {

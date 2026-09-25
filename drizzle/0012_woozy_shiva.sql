@@ -1,0 +1,1 @@
+ALTER TABLE "note" ADD COLUMN "embedding_updated_at" timestamp;

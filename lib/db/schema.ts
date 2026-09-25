@@ -104,6 +104,9 @@ export const note = pgTable(
     mimeType: text("mime_type"),
     fileSize: integer("file_size"),
     embedding: vector("embedding", { dimensions: 768 }),
+    // When `embedding` was last computed. Used to throttle re-embedding on
+    // autosave and to tell a stale vector from a missing one.
+    embeddingUpdatedAt: timestamp("embedding_updated_at"),
     classId: text("class_id").references(() => parseTestCourse.id, {
       onDelete: "set null",
     }),

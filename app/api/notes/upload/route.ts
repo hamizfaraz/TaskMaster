@@ -126,6 +126,7 @@ export async function POST(req: Request) {
           mimeType: file.type,
           fileSize: file.size,
           embedding: topic.embedding,
+          embeddingUpdatedAt: new Date(),
           markdown: topic.markdown,
           content: {
             ...markdownToNoteDocument(topic.markdown),
