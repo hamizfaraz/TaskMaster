@@ -5,7 +5,26 @@ ranker built there is instant, free, offline, and good enough that it removed
 the need for a model. This plans the layer *above* it, for the cases it
 provably cannot reach.
 
-Status: **planned, not built.** Nothing here is started.
+> **Status: built and measured.** The gate in §6 is passed.
+>
+> Against the evaluation set, on the cases the free ranker cannot handle:
+>
+> | Detector | Weak-case recall |
+> |---|---|
+> | Free ranker | **0%** |
+> | Agent on `gemini-2.5-flash-lite` | **0%** |
+> | Agent on `gemini-2.5-flash` | **71%** |
+>
+> The model is the whole feature. flash-lite does not drive a tool loop
+> unattended — it replies "Please provide the syllabus" and "What text would
+> you like me to verify?" instead of calling its own tools. §8.3 is resolved:
+> the agent pins `gemini-2.5-flash` and deliberately does not inherit
+> `GEMINI_PARSE_MODEL`.
+>
+> One instruction bug was found the same way. "If the note has nothing
+> definitional, return no points" gave a valid outcome without a mechanism, so
+> the model declined in prose and the wrapper saw nothing. Returning nothing is
+> now explicitly `submitPoints({ points: [] })`.
 
 ---
 

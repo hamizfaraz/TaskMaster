@@ -49,7 +49,9 @@ async function main() {
 
   const results = new Map<string, { text: string }[]>();
   for (const testCase of weakCases) {
-    const budget = Math.max(1, suggestionBudget(splitIntoBlocks(testCase.markdown).length) || 3);
+    // Mirrors suggestKeyPoints: this path runs only when asked, so the
+    // always-on ranker's tight budget is lifted.
+    const budget = Math.max(3, suggestionBudget(splitIntoBlocks(testCase.markdown).length));
     const result = await runKeyPointAgent({
       title: testCase.name,
       markdown: testCase.markdown,
