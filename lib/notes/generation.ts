@@ -153,7 +153,6 @@ export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: 
               "Convert all parsed lists into Markdown lists. Do not attempt to interpret or rewrite list contents.",
               "Convert all parsed images into Markdown image links with alt text. Do not attempt to interpret or rewrite image contents.",
               "Convert all code sections into Markdown code blocks. Do not attempt to interpret or rewrite code contents. Fix indentation and formatting if needed for valid Markdown, but do not change code syntax.",
-              "If the source contains an explicit flowchart, state diagram, or Mermaid diagram, preserve it as a fenced Mermaid block using ```mermaid. Do not invent diagrams.",
               "Return JSON only with this shape: {\"markdown\":\"...\"}.",
               `File name: ${fileName}`,
               "Parsed text:",

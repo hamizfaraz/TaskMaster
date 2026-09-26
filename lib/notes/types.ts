@@ -29,6 +29,9 @@ export type NoteBlockType =
   | "list"
   | "quote"
   | "code"
+  // Kept so a note that already contains a ```mermaid fence still round-trips
+  // losslessly. Nothing renders one: the renderer was removed with the old
+  // editor and the generator is no longer asked to produce them.
   | "mermaid"
   | "image"
   | "table"

@@ -199,9 +199,11 @@ least match, plus what NE-1–NE-8 add:
 - MathLive was exercised in jsdom through a stub element; focus handling in
   real browsers (Safari especially) still needs the manual pass above.
 - Tables render as monospace source in live preview, not as a grid widget.
-- Mermaid fences render as plain code (the renderer was removed with the old
-  editor), and `lib/notes/generation.ts` still instructs the model to emit
-  them. Code fences load a grammar via `@codemirror/language-data` and are
+- Mermaid is no longer generated. The renderer went with the old editor, and
+  rather than re-adding a large dependency for a feature no note used, the
+  generator instruction was removed. The `mermaid` block type stays so a note
+  that already contains such a fence still round-trips losslessly, and it
+  renders as plain fenced code. Code fences load a grammar via `@codemirror/language-data` and are
   painted by the `codeHighlight` fallback style; the end-to-end render is not
   covered by an automated test, because the grammar loads asynchronously and
   jsdom does not complete the nested re-parse.
