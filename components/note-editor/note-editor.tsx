@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, Code2, Eye, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, Eye, Loader2, Sparkles, Telescope } from "lucide-react";
 import { BlockMenu } from "@/components/note-editor/block-menu";
 import type { ImageUploader } from "@/components/note-editor/extensions/image-drop";
 import type { ActiveLineRect, MarkdownEditorHandle } from "@/components/note-editor/markdown-editor";
@@ -10,6 +10,7 @@ import { useAutosave, type AutosaveStatus } from "@/components/note-editor/use-a
 import { countSuggestions } from "@/components/note-editor/extensions/highlight-suggestions";
 import { isTempNoteId } from "@/lib/notes/records";
 import { cx } from "@/lib/utils";
+import { toast } from "sonner";
 
 // CodeMirror is DOM-only; keep it out of the server bundle and initial paint.
 const MarkdownEditor = dynamic(() => import("@/components/note-editor/markdown-editor"), {
@@ -93,6 +94,7 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isAsking, setIsAsking] = useState(false);
   const [activeLine, setActiveLine] = useState<ActiveLineRect | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const { status, draft, latest, notifyChange, flush, retry } = useAutosave({
@@ -139,6 +141,52 @@ export function NoteEditor({
     [showSuggestions, value],
   );
 
+  /**
+   * Ask the agent for a second opinion. The free ranker is always on and
+   * costs nothing; this makes model calls, so it is a deliberate action
+   * rather than something that happens while typing.
+   */
+  async function askForKeyPoints() {
+    if (isAsking || isTempNoteId(noteId)) {
+      return;
+    }
+
+    setIsAsking(true);
+    setShowSuggestions(true);
+    const toastId = toast.loading("Looking for the key points…", { duration: Infinity });
+
+    try {
+      await flush(); // the agent reads the saved note, so land any pending edit first
+      const response = await fetch(`/api/notes/${noteId}/key-points`, { method: "POST" });
+      const payload = (await response.json().catch(() => null)) as
+        | { suggestions?: { from: number; to: number; text: string; reason: string }[]; error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "The request failed.");
+      }
+
+      const suggestions = payload?.suggestions ?? [];
+      editorRef.current?.showAgentSuggestions(suggestions);
+      if (suggestions.length === 0) {
+        toast.success("Nothing extra stood out in this note", { id: toastId });
+      } else {
+        toast.success(
+          `Found ${suggestions.length} point${suggestions.length === 1 ? "" : "s"} — click one to highlight it`,
+          { id: toastId },
+        );
+      }
+    } catch (error) {
+      toast.error("Could not work out the key points", {
+        id: toastId,
+        description: error instanceof Error ? error.message : undefined,
+        duration: 5000,
+      });
+    } finally {
+      setIsAsking(false);
+    }
+  }
+
   const handleChange = (next: string) => {
     if (!readOnly) {
       notifyChange(next);
@@ -167,6 +215,22 @@ export function NoteEditor({
           >
             <Sparkles className="size-3.5" />
             {suggestionCount > 0 ? `${suggestionCount} key points` : "Key points"}
+          </button>
+        ) : null}
+        {!readOnly && showSuggestions ? (
+          <button
+            type="button"
+            onClick={() => void askForKeyPoints()}
+            disabled={isAsking || isTempNoteId(noteId)}
+            title="Ask for a second opinion, using this note's course context"
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 text-xs text-muted-foreground transition hover:border-border-strong hover:text-foreground disabled:opacity-60"
+          >
+            {isAsking ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Telescope className="size-3.5" />
+            )}
+            Look harder
           </button>
         ) : null}
         <button

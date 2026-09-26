@@ -2,7 +2,11 @@ import { act, cleanup, render } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MarkdownEditor from "@/components/note-editor/markdown-editor";
-import { acceptSuggestion } from "@/components/note-editor/extensions/highlight-suggestions";
+import {
+  acceptSuggestion,
+  agentSuggestionField,
+  setAgentSuggestions,
+} from "@/components/note-editor/extensions/highlight-suggestions";
 import { detectHighlightSuggestions } from "@/lib/notes/detect-highlights";
 import { extractHighlights } from "@/lib/notes/highlights";
 
@@ -76,5 +80,50 @@ describe("highlight suggestions layer", () => {
     const [suggestion] = detectHighlightSuggestions(doc);
     const accepted = `${doc.slice(0, suggestion!.from)}==${suggestion!.text}==${doc.slice(suggestion!.to)}`;
     expect(detectHighlightSuggestions(accepted).some((s) => s.text === suggestion!.text)).toBe(false);
+  });
+});
+
+describe("agent suggestions layer", () => {
+  const agentPoint = {
+    from: doc.indexOf("Consider the grammar below."),
+    to: doc.indexOf("Consider the grammar below.") + "Consider the grammar below.".length,
+    text: "Consider the grammar below.",
+    reason: "the syllabus names this concept",
+  };
+
+  it("renders the agent's reason as the tooltip", () => {
+    const { host, view } = mount(true);
+    act(() => {
+      view.dispatch({ effects: setAgentSuggestions.of([agentPoint]) });
+    });
+
+    const marked = [...host.querySelectorAll("[data-suggestion]")].find((node) =>
+      node.textContent?.includes("Consider the grammar"),
+    );
+    expect(marked?.getAttribute("title")).toContain("the syllabus names this concept");
+  });
+
+  it("drops an agent span once the text under it changes", () => {
+    // Offsets are mapped through edits, but a span whose text no longer
+    // matches is stale and must not be offered.
+    const { view } = mount(true);
+    act(() => {
+      view.dispatch({ effects: setAgentSuggestions.of([agentPoint]) });
+    });
+    expect(view.state.field(agentSuggestionField)).toHaveLength(1);
+
+    act(() => {
+      view.dispatch({ changes: { from: agentPoint.from, to: agentPoint.to, insert: "Something else." } });
+    });
+    expect(view.state.field(agentSuggestionField)).toHaveLength(0);
+  });
+
+  it("clears them when handed an empty list", () => {
+    const { view } = mount(true);
+    act(() => {
+      view.dispatch({ effects: setAgentSuggestions.of([agentPoint]) });
+      view.dispatch({ effects: setAgentSuggestions.of([]) });
+    });
+    expect(view.state.field(agentSuggestionField)).toHaveLength(0);
   });
 });

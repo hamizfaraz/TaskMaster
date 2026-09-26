@@ -19,7 +19,11 @@ import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 import { inlineFormatKeymap } from "@/components/note-editor/extensions/inline-format";
-import { highlightSuggestions } from "@/components/note-editor/extensions/highlight-suggestions";
+import {
+  highlightSuggestions,
+  setAgentSuggestions,
+  type ExternalSuggestion,
+} from "@/components/note-editor/extensions/highlight-suggestions";
 
 function previewExtensions(sourceMode: boolean) {
   return sourceMode ? [] : [livePreview(), mathWidgets()];
@@ -30,6 +34,8 @@ export type MarkdownEditorHandle = {
   focus(): void;
   /** Insert a block command at the cursor — the same commands the `/` menu offers. */
   applyCommand(command: Completion): void;
+  /** Show the agent's proposed key points. Pass an empty array to clear them. */
+  showAgentSuggestions(suggestions: ExternalSuggestion[]): void;
 };
 
 /** Where the cursor's line sits, relative to the editor host's top edge. */
@@ -139,6 +145,9 @@ export default function MarkdownEditor({
         if (view) {
           applyBlockCommand(view, command);
         }
+      },
+      showAgentSuggestions(suggestions) {
+        viewRef.current?.dispatch({ effects: setAgentSuggestions.of(suggestions) });
       },
     }),
     [],
