@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { getButtonClassName } from "@/components/ui/button";
@@ -93,7 +93,13 @@ export default async function ClassDetailPage(props: {
       updatedAt: note.updatedAt,
     })
     .from(note)
-    .where(and(eq(note.userId, session.user.id), eq(note.classId, preview.course.id)))
+    .where(
+      and(
+        eq(note.userId, session.user.id),
+        eq(note.classId, preview.course.id),
+        isNull(note.deletedAt),
+      ),
+    )
     .orderBy(desc(note.updatedAt));
   const upcomingClassItems = getUpcomingClassItems(preview.assignments, preview.events);
 

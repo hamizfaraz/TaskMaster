@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note, parseTestConcept, parseTestCourse, parseTestGradingItem } from "@/lib/db/schema";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
@@ -28,7 +28,7 @@ export async function getOwnedNote(userId: string, noteId: string): Promise<Agen
   const [row] = await db
     .select({ id: note.id, title: note.title, markdown: note.markdown, classId: note.classId })
     .from(note)
-    .where(and(eq(note.id, noteId), eq(note.userId, userId)))
+    .where(and(eq(note.id, noteId), eq(note.userId, userId), isNull(note.deletedAt)))
     .limit(1);
 
   return row ?? null;
@@ -104,7 +104,14 @@ export async function getSiblingNoteTitles(
   const rows = await db
     .select({ title: note.title })
     .from(note)
-    .where(and(eq(note.userId, userId), eq(note.classId, owned.classId), ne(note.id, noteId)))
+    .where(
+      and(
+        eq(note.userId, userId),
+        eq(note.classId, owned.classId),
+        ne(note.id, noteId),
+        isNull(note.deletedAt),
+      ),
+    )
     .orderBy(desc(note.updatedAt))
     .limit(limit);
 

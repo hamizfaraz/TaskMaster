@@ -78,6 +78,10 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     );
   }
 
+  if (existing.deletedAt) {
+    return NextResponse.json({ error: "This note is in the trash" }, { status: 409 });
+  }
+
   const updates: Record<string, unknown> = {};
   if (typeof body.title === "string") updates.title = body.title.trim() || "Untitled";
   if (body.markdown !== undefined) {
@@ -157,8 +161,18 @@ export async function PATCH(req: Request, ctx: RouteContext) {
   }
 }
 
-// DELETE /api/notes/:id
-export async function DELETE(_req: Request, ctx: RouteContext) {
+/**
+ * DELETE /api/notes/:id
+ *
+ * Moves the note to the trash. Deleting used to destroy the row outright,
+ * which made it the only irreversible action in the feature — and the bulk
+ * path removes several at once.
+ *
+ * `?permanent=1` destroys it for real, which is what emptying the trash does.
+ * Nothing purges on a timer: silently deleting a student's coursework after
+ * N days is the wrong default.
+ */
+export async function DELETE(req: Request, ctx: RouteContext) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -170,9 +184,49 @@ export async function DELETE(_req: Request, ctx: RouteContext) {
     return NextResponse.json({ error: "Note not found" }, { status: 404 });
   }
 
-  await db
-    .delete(note)
-    .where(and(eq(note.id, id), eq(note.userId, session.user.id)));
+  const permanent = new URL(req.url).searchParams.get("permanent") === "1";
 
-  return NextResponse.json({ success: true });
+  try {
+    if (permanent) {
+      await db.delete(note).where(and(eq(note.id, id), eq(note.userId, session.user.id)));
+      return NextResponse.json({ success: true, permanent: true });
+    }
+
+    await db
+      .update(note)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(note.id, id), eq(note.userId, session.user.id)));
+
+    return NextResponse.json({ success: true, permanent: false });
+  } catch (error) {
+    console.error("[DELETE /api/notes/:id]", error);
+    return NextResponse.json({ error: "Could not delete the note." }, { status: 500 });
+  }
+}
+
+/** POST /api/notes/:id — take a note back out of the trash. */
+export async function POST(_req: Request, ctx: RouteContext) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await ctx.params;
+  const existing = await getUserNote(session.user.id, id);
+  if (!existing) {
+    return NextResponse.json({ error: "Note not found" }, { status: 404 });
+  }
+
+  try {
+    const [restored] = await db
+      .update(note)
+      .set({ deletedAt: null })
+      .where(and(eq(note.id, id), eq(note.userId, session.user.id)))
+      .returning();
+
+    return NextResponse.json(restored);
+  } catch (error) {
+    console.error("[POST /api/notes/:id] restore", error);
+    return NextResponse.json({ error: "Could not restore the note." }, { status: 500 });
+  }
 }

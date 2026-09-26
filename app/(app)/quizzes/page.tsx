@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note, quizAttempts, quizzes } from "@/lib/db/schema";
 import { requireServerSession } from "@/lib/auth-session";
@@ -19,7 +19,7 @@ export default async function QuizzesPage() {
       updatedAt: note.updatedAt,
     })
     .from(note)
-    .where(eq(note.userId, session.user.id))
+    .where(and(eq(note.userId, session.user.id), isNull(note.deletedAt)))
     .orderBy(desc(note.updatedAt));
 
   const quizStorageReady = await hasQuizStorage();

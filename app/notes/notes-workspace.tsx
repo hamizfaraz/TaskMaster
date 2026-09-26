@@ -248,6 +248,8 @@ export function NotesWorkspace({
   // autosave response lands. Export and duplicate read from here so neither
   // silently drops the last few seconds of typing.
   const noteEditorRef = useRef<NoteEditorHandle | null>(null);
+  const [trashedNotes, setTrashedNotes] = useState<WorkspaceNote[] | null>(null);
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
 
   // Sidebar drag-and-drop state
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
@@ -547,6 +549,11 @@ export function NotesWorkspace({
         } | null;
         throw new Error(payload?.error || "Could not delete the note.");
       }
+      setTrashedNotes(null); // reload next time the trash is opened
+      toast.success("Moved to trash", {
+        description: "Restore it from the trash at the bottom of the sidebar.",
+        duration: 5000,
+      });
     } catch (err) {
       setNotes((current) => sortWorkspaceNotes([noteToDelete, ...current]));
       setSelectedId(noteToDelete.id);
@@ -569,6 +576,61 @@ export function NotesWorkspace({
    * last paragraph. The editor knows the live value for whichever note is
    * open; any other note is only ever as current as its last save.
    */
+  async function loadTrash() {
+    try {
+      const response = await fetch("/api/notes?trash=1");
+      const payload = (await response.json().catch(() => null)) as
+        | (NoteRecord & { error?: string })[]
+        | { error?: string }
+        | null;
+      if (!response.ok || !Array.isArray(payload)) {
+        throw new Error((payload as { error?: string })?.error || "Could not load the trash.");
+      }
+      setTrashedNotes(payload.map((record) => noteRecordToWorkspaceNote(record)));
+    } catch (err) {
+      setTrashedNotes([]);
+      toast.error("Could not load the trash", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 5000,
+      });
+    }
+  }
+
+  async function handleRestoreNote(target: WorkspaceNote) {
+    try {
+      const response = await fetch(`/api/notes/${target.id}`, { method: "POST" });
+      const restored = await readNoteRecord(response);
+      setTrashedNotes((current) => (current ?? []).filter((n) => n.id !== target.id));
+      mergeNote(restored);
+      setSelectedId(restored.id);
+      toast.success("Note restored");
+    } catch (err) {
+      toast.error("Could not restore note", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 5000,
+      });
+    }
+  }
+
+  async function handleDeleteForever(target: WorkspaceNote) {
+    if (!window.confirm(`Permanently delete "${getRenderableTitle(target.title)}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/notes/${target.id}?permanent=1`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Could not delete the note.");
+      }
+      setTrashedNotes((current) => (current ?? []).filter((n) => n.id !== target.id));
+    } catch (err) {
+      toast.error("Could not delete note", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 5000,
+      });
+    }
+  }
+
   function currentMarkdownOf(target: WorkspaceNote) {
     return target.id === selectedNote?.id
       ? (noteEditorRef.current?.getMarkdown() ?? target.content.markdown)
@@ -847,6 +909,7 @@ export function NotesWorkspace({
       setSelectedId(notes.find((n) => !ids.includes(n.id))?.id ?? null);
     }
     clearSidebarSelect();
+    setTrashedNotes(null); // reload next time the trash is opened
 
     const toastId = toast.loading(
       `Deleting ${ids.length} note${ids.length === 1 ? "" : "s"}...`,
@@ -1481,6 +1544,59 @@ export function NotesWorkspace({
                 );
               })}
             </section>
+
+                {/* Trash */}
+                <section className="mt-5 border-t border-border pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isTrashOpen;
+                      setIsTrashOpen(next);
+                      if (next && trashedNotes === null) void loadTrash();
+                    }}
+                    aria-expanded={isTrashOpen}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span className="flex-1 text-left">Trash</span>
+                    {trashedNotes ? <span>{trashedNotes.length}</span> : null}
+                  </button>
+
+                  {isTrashOpen ? (
+                    <div className="mt-1 space-y-0.5">
+                      {trashedNotes === null ? (
+                        <p className="px-2 py-1 text-xs text-muted-foreground">Loading…</p>
+                      ) : trashedNotes.length === 0 ? (
+                        <p className="px-2 py-1 text-xs text-muted-foreground">Nothing deleted.</p>
+                      ) : (
+                        trashedNotes.map((trashed) => (
+                          <div
+                            key={trashed.id}
+                            className="group flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground"
+                          >
+                            <span className="min-w-0 flex-1 truncate">
+                              {getRenderableTitle(trashed.title)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleRestoreNote(trashed)}
+                              className="shrink-0 rounded px-1.5 py-0.5 text-xs opacity-0 transition hover:bg-surface hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                            >
+                              Restore
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteForever(trashed)}
+                              className="shrink-0 rounded px-1.5 py-0.5 text-xs opacity-0 transition hover:bg-danger-soft hover:text-danger group-hover:opacity-100 focus-visible:opacity-100"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </section>
               </>
             )}
           </div>

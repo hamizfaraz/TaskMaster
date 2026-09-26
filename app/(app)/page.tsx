@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt } from "drizzle-orm";
 import { getButtonClassName } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireServerSession } from "@/lib/auth-session";
@@ -108,7 +108,7 @@ export default async function DashboardPage() {
     db
       .select({ id: note.id, title: note.title, classId: note.classId, updatedAt: note.updatedAt })
       .from(note)
-      .where(eq(note.userId, userId))
+      .where(and(eq(note.userId, userId), isNull(note.deletedAt)))
       .orderBy(desc(note.updatedAt))
       .limit(10),
     db

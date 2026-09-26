@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { requireServerSession } from "@/lib/auth-session";
@@ -33,7 +33,7 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
       updatedAt: note.updatedAt,
     })
     .from(note)
-    .where(eq(note.userId, session.user.id))
+    .where(and(eq(note.userId, session.user.id), isNull(note.deletedAt)))
     .orderBy(desc(note.updatedAt));
 
   // Two things are read on the server and then dropped before crossing the

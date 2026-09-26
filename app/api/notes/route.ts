@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
 import { embedNote } from "@/lib/notes/embedding";
@@ -17,7 +17,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const classIdParam = new URL(req.url).searchParams.get("classId");
+  const params = new URL(req.url).searchParams;
+  const classIdParam = params.get("classId");
+  const inTrash = params.get("trash") === "1";
   if (classIdParam) {
     const ownedClass = await assertClassBelongsToUser(classIdParam, session.user.id);
     if (!ownedClass) {
@@ -45,6 +47,8 @@ export async function GET(req: Request) {
     .where(
       and(
         eq(note.userId, session.user.id),
+        // `?trash=1` lists what has been deleted, so the sidebar can offer it back.
+        inTrash ? isNotNull(note.deletedAt) : isNull(note.deletedAt),
         classIdParam ? eq(note.classId, classIdParam) : undefined,
       ),
     )

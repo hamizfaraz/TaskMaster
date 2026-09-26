@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { extractHighlights } from "@/lib/notes/highlights";
@@ -62,7 +62,13 @@ export async function getNoteContext(params: {
       embedding: note.embedding,
     })
     .from(note)
-    .where(and(eq(note.userId, params.userId), inArray(note.id, uniqueNoteIds)));
+    .where(
+      and(
+        eq(note.userId, params.userId),
+        inArray(note.id, uniqueNoteIds),
+        isNull(note.deletedAt),
+      ),
+    );
 
   return rows.map((row) => ({
     id: row.id,
