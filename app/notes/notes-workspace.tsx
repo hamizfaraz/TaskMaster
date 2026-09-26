@@ -561,13 +561,27 @@ export function NotesWorkspace({
   // Duplicate (optimistic)
   // -------------------------------------------------------------------------
 
+  /**
+   * A note's text as it stands now.
+   *
+   * `notes` only catches up when an autosave response lands, so reading it
+   * directly meant duplicating or exporting within a second of typing lost the
+   * last paragraph. The editor knows the live value for whichever note is
+   * open; any other note is only ever as current as its last save.
+   */
+  function currentMarkdownOf(target: WorkspaceNote) {
+    return target.id === selectedNote?.id
+      ? (noteEditorRef.current?.getMarkdown() ?? target.content.markdown)
+      : target.content.markdown;
+  }
+
   async function handleDuplicateNote() {
     if (!selectedNote || isTempNote(selectedNote.id)) return;
 
     const source = selectedNote;
     const temp = createTempNote(source.classId, {
       title: `${source.title} (copy)`,
-      content: source.content,
+      content: { ...source.content, markdown: currentMarkdownOf(source) },
     });
 
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
@@ -581,7 +595,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          markdown: source.content.markdown,
+          markdown: currentMarkdownOf(source),
         }),
       });
       const created = await readNoteRecord(response);
@@ -895,7 +909,7 @@ export function NotesWorkspace({
             body: JSON.stringify({
               title: temp.title,
               classId: temp.classId,
-              markdown: source.content.markdown,
+              markdown: currentMarkdownOf(source),
             }),
           });
           const created = await readNoteRecord(response);
@@ -972,7 +986,7 @@ export function NotesWorkspace({
     setNoteContextMenu(null);
     const temp = createTempNote(source.classId, {
       title: `${source.title} (copy)`,
-      content: source.content,
+      content: { ...source.content, markdown: currentMarkdownOf(source) },
     });
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
     setSelectedId(temp.id);
@@ -984,7 +998,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          markdown: source.content.markdown,
+          markdown: currentMarkdownOf(source),
         }),
       });
       const created = await readNoteRecord(response);
