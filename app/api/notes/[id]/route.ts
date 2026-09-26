@@ -208,8 +208,15 @@ export async function DELETE(req: Request, ctx: RouteContext) {
   }
 }
 
-/** POST /api/notes/:id — take a note back out of the trash. */
-export async function POST(_req: Request, ctx: RouteContext) {
+/**
+ * POST /api/notes/:id — take a note back out of the trash.
+ *
+ * A restore has to supply a class whenever the note lacks one. Every note in
+ * the trash today was put there *because* it had no class, and the sidebar has
+ * no unfiled group any more: clearing `deleted_at` alone would make the note
+ * live, editable, and visible in no list at all.
+ */
+export async function POST(req: Request, ctx: RouteContext) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -221,10 +228,34 @@ export async function POST(_req: Request, ctx: RouteContext) {
     return NextResponse.json({ error: "Note not found" }, { status: 404 });
   }
 
+  let body: { classId?: unknown } = {};
+  try {
+    body = (await req.json()) as { classId?: unknown };
+  } catch {
+    body = {};
+  }
+
+  const requestedClassId = typeof body.classId === "string" && body.classId ? body.classId : null;
+  const classId = requestedClassId ?? existing.classId;
+
+  if (!classId) {
+    return NextResponse.json(
+      { error: "Choose a class to restore this note into." },
+      { status: 400 },
+    );
+  }
+
+  if (classId !== existing.classId) {
+    const ownedClass = await assertClassBelongsToUser(classId, session.user.id);
+    if (!ownedClass) {
+      return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });
+    }
+  }
+
   try {
     const [restored] = await db
       .update(note)
-      .set({ deletedAt: null })
+      .set({ deletedAt: null, classId })
       .where(and(eq(note.id, id), eq(note.userId, session.user.id)))
       .returning();
 

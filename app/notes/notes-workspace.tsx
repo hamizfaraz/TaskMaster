@@ -38,6 +38,7 @@ import {
   type NoteRecord,
   type WorkspaceNote,
 } from "@/lib/notes/records";
+import Link from "next/link";
 import { NoteEditor, type NoteEditorHandle } from "@/components/note-editor/note-editor";
 import { searchNotes } from "@/lib/notes/search";
 import { PermanentSaveError } from "@/components/note-editor/use-autosave";
@@ -114,7 +115,8 @@ function getClassShortLabel(item: WorkspaceClass) {
 const isTempNote = isTempNoteId;
 
 function createTempNote(
-  classId: string | null,
+  /** Required: a note has to have a home before it exists. */
+  classId: string,
   overrides?: Partial<WorkspaceNote>,
 ): WorkspaceNote {
   const now = new Date().toISOString();
@@ -603,9 +605,13 @@ export function NotesWorkspace({
     }
   }
 
-  async function handleRestoreNote(target: WorkspaceNote) {
+  async function handleRestoreNote(target: WorkspaceNote, classId: string) {
     try {
-      const response = await fetch(`/api/notes/${target.id}`, { method: "POST" });
+      const response = await fetch(`/api/notes/${target.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId }),
+      });
       const restored = await readNoteRecord(response);
       setTrashedNotes((current) => (current ?? []).filter((n) => n.id !== target.id));
       mergeNote(restored);
@@ -648,7 +654,7 @@ export function NotesWorkspace({
     if (!selectedNote || isTempNote(selectedNote.id)) return;
 
     const source = selectedNote;
-    const temp = createTempNote(source.classId, {
+    const temp = createTempNote(source.classId ?? fallbackClassId ?? "", {
       title: `${source.title} (copy)`,
       content: { ...source.content, markdown: currentMarkdownOf(source) },
     });
@@ -976,7 +982,7 @@ export function NotesWorkspace({
     if (sources.length === 0) return;
 
     const temps = sources.map((source) =>
-      createTempNote(source.classId, {
+      createTempNote(source.classId ?? fallbackClassId ?? "", {
         title: `${source.title} (copy)`,
         content: source.content,
       }),
@@ -1070,7 +1076,7 @@ export function NotesWorkspace({
 
   async function handleContextMenuDuplicate(source: WorkspaceNote) {
     setNoteContextMenu(null);
-    const temp = createTempNote(source.classId, {
+    const temp = createTempNote(source.classId ?? fallbackClassId ?? "", {
       title: `${source.title} (copy)`,
       content: { ...source.content, markdown: currentMarkdownOf(source) },
     });
@@ -1600,13 +1606,23 @@ export function NotesWorkspace({
                             <span className="min-w-0 flex-1 truncate">
                               {getRenderableTitle(trashed.title)}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => void handleRestoreNote(trashed)}
-                              className="shrink-0 rounded px-1.5 py-0.5 text-xs opacity-0 transition hover:bg-surface hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                            <select
+                              aria-label={`Restore "${getRenderableTitle(trashed.title)}" into a class`}
+                              value=""
+                              onChange={(event) => {
+                                const classId = event.currentTarget.value;
+                                if (classId) void handleRestoreNote(trashed, classId);
+                              }}
+                              disabled={classes.length === 0}
+                              className="shrink-0 rounded border border-border bg-surface px-1 py-0.5 text-xs text-muted-foreground opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-40"
                             >
-                              Restore
-                            </button>
+                              <option value="">Restore to…</option>
+                              {classes.map((cls) => (
+                                <option key={cls.id} value={cls.id}>
+                                  {getClassShortLabel(cls)}
+                                </option>
+                              ))}
+                            </select>
                             <button
                               type="button"
                               onClick={() => void handleDeleteForever(trashed)}
@@ -1807,23 +1823,45 @@ export function NotesWorkspace({
             </div>
           ) : (
             <div className="relative z-10 flex h-full min-h-0 items-center justify-center p-6">
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  onClick={() => handleCreateNote(fallbackClassId)}
-                  disabled={isPending}
-                >
-                  New page
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsUploadModalOpen(true)}
-                  disabled={isPending}
-                >
-                  Import
-                </Button>
-              </div>
+              {classes.length === 0 ? (
+                // Notes live inside a class, so with none there is nothing to
+                // create into. Offering a button that can only fail is worse
+                // than saying where to go.
+                <div className="flex max-w-sm flex-col items-center text-center">
+                  <Folder className="mb-4 size-10 text-muted-foreground" aria-hidden="true" />
+                  <h2 className="text-lg font-semibold text-foreground">No classes yet</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Notes are filed under a class. Add one and its notes will live there.
+                  </p>
+                  <Link
+                    href="/classes"
+                    className={cx(
+                      "mt-4 inline-flex h-10 items-center rounded-[var(--radius-lg)] px-4 text-sm font-medium",
+                      "bg-accent text-accent-foreground hover:opacity-90",
+                    )}
+                  >
+                    Go to classes
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => handleCreateNote(fallbackClassId)}
+                    disabled={isPending}
+                  >
+                    New page
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsUploadModalOpen(true)}
+                    disabled={isPending}
+                  >
+                    Import
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </section>
