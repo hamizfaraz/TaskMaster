@@ -1,5 +1,10 @@
 # Notes — outstanding issues and the plan to fix them
 
+> **Status: §1 and §2 are done.** Restore takes a class, a user with no classes
+> gets a way forward instead of a failing button, `createTempNote` enforces the
+> invariant in the type system, and `Alt+↑/↓` moves whole blocks. §3 is
+> untouched, with **#88** still the next thing worth doing.
+
 Written after making notes class-mandatory, which fixed one thing and broke
 another. Ordered by what is actually broken, then what was promised, then what
 is merely absent.

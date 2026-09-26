@@ -20,6 +20,7 @@ import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 import { inlineFormatKeymap } from "@/components/note-editor/extensions/inline-format";
+import { moveBlockKeymap } from "@/components/note-editor/extensions/move-block";
 import {
   highlightSuggestions,
   setAgentSuggestions,
@@ -186,6 +187,8 @@ export default function MarkdownEditor({
           search({ top: true }),
           highlightSelectionMatches(),
           inlineFormatKeymap(),
+          // Ahead of defaultKeymap, which moves a single line.
+          moveBlockKeymap(),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((update) => {
             if (
