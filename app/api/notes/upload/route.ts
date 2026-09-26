@@ -85,7 +85,15 @@ export async function POST(req: Request) {
   const classId =
     typeof rawClassId === "string" && rawClassId.trim() ? rawClassId.trim() : null;
 
-  if (classId) {
+  // Generated notes belong to a class like any other.
+  if (!classId) {
+    return NextResponse.json(
+      { error: "Choose a class before uploading." },
+      { status: 400 },
+    );
+  }
+
+  {
     const ownedClass = await assertClassBelongsToUser(classId, session.user.id);
     if (!ownedClass) {
       return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });

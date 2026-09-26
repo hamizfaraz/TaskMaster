@@ -106,8 +106,12 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     }
   }
   if (body.classId !== undefined) {
-    if (body.classId !== null && typeof body.classId !== "string") {
-      return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });
+    // A note cannot be moved out of every class: unfiled is no longer a state.
+    if (typeof body.classId !== "string" || !body.classId) {
+      return NextResponse.json(
+        { error: "A note must belong to a class." },
+        { status: 400 },
+      );
     }
 
     if (typeof body.classId === "string") {

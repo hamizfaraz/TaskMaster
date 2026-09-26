@@ -78,13 +78,21 @@ export async function POST(req: Request) {
     typeof body.title === "string" && body.title.trim()
       ? body.title.trim()
       : "Untitled";
-  const classId = body.classId === null ? null : typeof body.classId === "string" ? body.classId : null;
+  // Every note belongs to a class. The column stays nullable in the database
+  // because rows already in the trash predate this rule and must still be
+  // restorable; the requirement is enforced here, on the way in.
+  const classId = typeof body.classId === "string" && body.classId ? body.classId : null;
 
-  if (classId) {
-    const ownedClass = await assertClassBelongsToUser(classId, session.user.id);
-    if (!ownedClass) {
-      return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });
-    }
+  if (!classId) {
+    return NextResponse.json(
+      { error: "A note must be created inside a class." },
+      { status: 400 },
+    );
+  }
+
+  const ownedClass = await assertClassBelongsToUser(classId, session.user.id);
+  if (!ownedClass) {
+    return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });
   }
 
   let content: ReturnType<typeof normalizeNoteWriteContent>;

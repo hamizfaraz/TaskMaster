@@ -309,16 +309,10 @@ export function NotesWorkspace({
         id: item.id,
         title: getClassLabel(item),
         shortTitle: getClassShortLabel(item),
-        classId: item.id as string | null,
+        // Every group is a real class now; there is no unfiled bucket.
+        classId: item.id,
         notes: notes.filter((note) => note.classId === item.id),
       })),
-      {
-        id: "unfiled",
-        title: "Unfiled",
-        shortTitle: "Unfiled",
-        classId: null as string | null,
-        notes: notes.filter((note) => !note.classId),
-      },
     ],
     [classes, notes],
   );
@@ -326,7 +320,11 @@ export function NotesWorkspace({
     selectedNote && titleDraftState.noteId === selectedNote.id
       ? titleDraftState.value
       : (selectedNote?.title ?? "Untitled");
-  const fallbackClassId = initialClassId ?? selectedNote?.classId ?? null;
+  // Notes belong to a class, so creation needs one. Prefer the filtered class,
+  // then the open note's, then the user's first class — "unfiled" is no longer
+  // somewhere a note can live.
+  const fallbackClassId =
+    initialClassId ?? selectedNote?.classId ?? classes[0]?.id ?? null;
 
   useEffect(() => {
     selectedIdRef.current = selectedNote?.id ?? null;
@@ -442,7 +440,16 @@ export function NotesWorkspace({
   // -------------------------------------------------------------------------
 
   function handleCreateNote(classId?: string | null, silent = false) {
-    const temp = createTempNote(classId ?? null);
+    const targetClassId = classId ?? fallbackClassId;
+    if (!targetClassId) {
+      toast.error("Create a class first", {
+        description: "Notes live inside a class, so there needs to be one to put this in.",
+        duration: 6000,
+      });
+      return;
+    }
+
+    const temp = createTempNote(targetClassId);
 
     // Urgent on purpose: the workspace must be showing the new note before
     // the next keystroke. Inside the transition these updates could sit
@@ -452,26 +459,26 @@ export function NotesWorkspace({
     setSelectedId(temp.id);
     setTitleDraftState({ noteId: temp.id, value: "Untitled" });
 
-    if (!silent && classId) {
+    if (!silent) {
       setCollapsedGroups((current) => {
         const next = new Set(current);
-        next.delete(classId);
+        next.delete(targetClassId);
         return next;
       });
     }
 
     // The request itself is the transition (it drives `isPending`).
-    startTransition(() => createNoteOnServer(temp, classId ?? null));
+    startTransition(() => createNoteOnServer(temp, targetClassId));
   }
 
-  async function createNoteOnServer(temp: WorkspaceNote, classId: string | null) {
+  async function createNoteOnServer(temp: WorkspaceNote, classId: string) {
     try {
       const response = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: "Untitled",
-          classId: classId ?? null,
+          classId,
           markdown: "",
         }),
       });
@@ -689,6 +696,14 @@ export function NotesWorkspace({
   // -------------------------------------------------------------------------
 
   async function handleGenerateFromFile(file: File, classId?: string | null) {
+    const targetClassId = classId ?? fallbackClassId;
+    if (!targetClassId) {
+      toast.error("Choose a class first", {
+        description: "Generated notes are filed under a class.",
+        duration: 6000,
+      });
+      return;
+    }
     const toastId = toast.loading(`Parsing ${file.name}…`, {
       description: "This can take up to a minute for large files.",
       duration: Infinity,
@@ -701,7 +716,7 @@ export function NotesWorkspace({
         "title",
         file.name.replace(/\.[^.]+$/, "") || "Uploaded Note",
       );
-      if (classId) formData.set("classId", classId);
+      formData.set("classId", targetClassId);
 
       toast.loading("Generating notes with AI…", {
         id: toastId,
@@ -748,6 +763,14 @@ export function NotesWorkspace({
   }
 
   async function handleImportMdFile(file: File, classId?: string | null) {
+    const targetClassId = classId ?? fallbackClassId;
+    if (!targetClassId) {
+      toast.error("Choose a class first", {
+        description: "Imported notes are filed under a class.",
+        duration: 6000,
+      });
+      return;
+    }
     const toastId = toast.loading(`Importing ${file.name}…`, {
       duration: Infinity,
     });
@@ -761,7 +784,7 @@ export function NotesWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
-          classId: classId ?? null,
+          classId: targetClassId,
           markdown: text,
         }),
       });
@@ -833,7 +856,7 @@ export function NotesWorkspace({
   // Sidebar drag-and-drop: move note to a different class
   // -------------------------------------------------------------------------
 
-  function handleNoteDrop(groupClassId: string | null, noteId: string) {
+  function handleNoteDrop(groupClassId: string, noteId: string) {
     const note = notes.find((n) => n.id === noteId);
     if (!note || note.classId === groupClassId || isTempNote(noteId)) return;
 
@@ -993,7 +1016,7 @@ export function NotesWorkspace({
     );
   }
 
-  async function handleBulkMove(targetClassId: string | null) {
+  async function handleBulkMove(targetClassId: string) {
     if (sidebarSelectedIds.size === 0) return;
     const ids = [...sidebarSelectedIds].filter((id) => !isTempNote(id));
     if (ids.length === 0) {
@@ -1640,17 +1663,6 @@ export function NotesWorkspace({
                   </button>
                   {isBulkMoveOpen ? (
                     <div className="absolute bottom-full left-0 mb-1 w-full overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-[var(--shadow-card)]">
-                      <button
-                        type="button"
-                        onClick={() => void handleBulkMove(null)}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                      >
-                        <Folder
-                          className="h-3.5 w-3.5 shrink-0 opacity-60"
-                          aria-hidden="true"
-                        />
-                        Unfiled
-                      </button>
                       {classes.map((cls) => (
                         <button
                           key={cls.id}
