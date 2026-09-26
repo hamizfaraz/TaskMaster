@@ -7,6 +7,7 @@ import { listUserClasses } from "@/lib/classes/queries";
 import { noteRecordToWorkspaceNote, sortWorkspaceNotes } from "@/lib/notes/records";
 import { emptyNoteDocument } from "@/lib/notes/types";
 import { NotesWorkspace } from "@/app/notes/notes-workspace";
+import { NotesClassPicker } from "@/app/notes/notes-class-picker";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -17,6 +18,26 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
   const searchParams = props.searchParams ? await props.searchParams : undefined;
   const classIdParam = Array.isArray(searchParams?.classId) ? searchParams.classId[0] : searchParams?.classId;
   const newParam = Array.isArray(searchParams?.new) ? searchParams.new[0] : searchParams?.new;
+
+  const classSummaries = await listUserClasses(session.user.id);
+  const classes = classSummaries.map((item) => ({
+    id: item.courseId,
+    runId: item.runId,
+    title: item.title,
+    courseCode: item.courseCode,
+    noteCount: item.noteCount,
+  }));
+
+  // Notes belong to a class, so there is no "all notes" view to fall back to
+  // and nothing sensible to guess. Without a valid class the page asks which
+  // one; every route into the workspace carries the answer.
+  const activeClassId =
+    classIdParam && classes.some((item) => item.id === classIdParam) ? classIdParam : null;
+
+  if (!activeClassId) {
+    return <NotesClassPicker classes={classes} createOnOpen={newParam === "1"} />;
+  }
+
   const rows = await db
     .select({
       id: note.id,
@@ -33,7 +54,13 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
       updatedAt: note.updatedAt,
     })
     .from(note)
-    .where(and(eq(note.userId, session.user.id), isNull(note.deletedAt)))
+    .where(
+      and(
+        eq(note.userId, session.user.id),
+        eq(note.classId, activeClassId),
+        isNull(note.deletedAt),
+      ),
+    )
     .orderBy(desc(note.updatedAt));
 
   // Two things are read on the server and then dropped before crossing the
@@ -59,32 +86,14 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
       };
     }),
   );
-  const classSummaries = await listUserClasses(session.user.id);
-  const classes = classSummaries.map((item) => ({
-    id: item.courseId,
-    runId: item.runId,
-    title: item.title,
-    courseCode: item.courseCode,
-    noteCount: item.noteCount,
-  }));
-  const initialClassId: string | null =
-    classIdParam && classes.some((item) => item.id === classIdParam) ? classIdParam : null;
-  const resetSearchParams = new URLSearchParams();
-  if (initialClassId) {
-    resetSearchParams.set("classId", initialClassId);
-  }
-  const resetHref = resetSearchParams.size
-    ? `/notes?${resetSearchParams.toString()}`
-    : "/notes";
-
   return (
     <NotesWorkspace
-      key={`${initialClassId ?? "all"}-${newParam === "1" ? "new" : "ready"}`}
+      key={`${activeClassId}-${newParam === "1" ? "new" : "ready"}`}
       initialNotes={initialNotes}
       classes={classes}
-      initialClassId={initialClassId}
+      initialClassId={activeClassId}
       shouldCreateOnMount={newParam === "1"}
-      resetHref={resetHref}
+      resetHref={`/notes?classId=${encodeURIComponent(activeClassId)}`}
     />
   );
 }

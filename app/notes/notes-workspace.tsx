@@ -13,7 +13,6 @@ import { useRouter } from "next/navigation";
 import {
   CheckSquare,
   ChevronDown,
-  ChevronRight,
   Copy,
   Download,
   FileText,
@@ -54,7 +53,7 @@ type WorkspaceClass = {
 type NotesWorkspaceProps = {
   initialNotes: WorkspaceNote[];
   classes: WorkspaceClass[];
-  initialClassId: string | null;
+  initialClassId: string;
   shouldCreateOnMount: boolean;
   resetHref: string;
 };
@@ -241,9 +240,6 @@ export function NotesWorkspace({
     noteId: initialSelectedNote?.id ?? null,
     value: initialSelectedNote?.title ?? "Untitled",
   }));
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [isPending, startTransition] = useTransition();
   const [searchQuery, setSearchQuery] = useState("");
   // The editor's text runs ahead of `notes`, which only catches up when an
@@ -254,9 +250,6 @@ export function NotesWorkspace({
   const [isTrashOpen, setIsTrashOpen] = useState(false);
 
   // Sidebar drag-and-drop state
-  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
-  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
-
   // Sidebar multi-select state
   const [sidebarSelectedIds, setSidebarSelectedIds] = useState<Set<string>>(
     () => new Set(),
@@ -301,32 +294,16 @@ export function NotesWorkspace({
   );
   const isSearching = searchQuery.trim().length > 0;
 
-  const recentNotes = useMemo(
-    () => sortWorkspaceNotes(notes).slice(0, 8),
-    [notes],
-  );
-  const groupedNotes = useMemo(
-    () => [
-      ...classes.map((item) => ({
-        id: item.id,
-        title: getClassLabel(item),
-        shortTitle: getClassShortLabel(item),
-        // Every group is a real class now; there is no unfiled bucket.
-        classId: item.id,
-        notes: notes.filter((note) => note.classId === item.id),
-      })),
-    ],
-    [classes, notes],
-  );
   const draftTitle =
     selectedNote && titleDraftState.noteId === selectedNote.id
       ? titleDraftState.value
       : (selectedNote?.title ?? "Untitled");
-  // Notes belong to a class, so creation needs one. Prefer the filtered class,
-  // then the open note's, then the user's first class — "unfiled" is no longer
-  // somewhere a note can live.
-  const fallbackClassId =
-    initialClassId ?? selectedNote?.classId ?? classes[0]?.id ?? null;
+  // The workspace is always scoped to one class, chosen at `/notes` and carried
+  // in the URL. Creation, upload and import all use it. There is deliberately
+  // no fallback: guessing a class filed work into an arbitrary course without
+  // telling anyone, which is worse than refusing.
+  const activeClass = classes.find((item) => item.id === initialClassId) ?? null;
+  const fallbackClassId = initialClassId;
 
   useEffect(() => {
     selectedIdRef.current = selectedNote?.id ?? null;
@@ -387,15 +364,6 @@ export function NotesWorkspace({
     );
   }
 
-  function toggleGroup(groupId: string) {
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  }
-
   function selectNote(note: WorkspaceNote) {
     setSelectedId(note.id);
     setTitleDraftState({ noteId: note.id, value: note.title });
@@ -441,7 +409,7 @@ export function NotesWorkspace({
   // Create (optimistic)
   // -------------------------------------------------------------------------
 
-  function handleCreateNote(classId?: string | null, silent = false) {
+  function handleCreateNote(classId?: string | null) {
     const targetClassId = classId ?? fallbackClassId;
     if (!targetClassId) {
       toast.error("Create a class first", {
@@ -460,14 +428,6 @@ export function NotesWorkspace({
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
     setSelectedId(temp.id);
     setTitleDraftState({ noteId: temp.id, value: "Untitled" });
-
-    if (!silent) {
-      setCollapsedGroups((current) => {
-        const next = new Set(current);
-        next.delete(targetClassId);
-        return next;
-      });
-    }
 
     // The request itself is the transition (it drives `isPending`).
     startTransition(() => createNoteOnServer(temp, targetClassId));
@@ -524,14 +484,14 @@ export function NotesWorkspace({
     }
   }
 
-  const createNoteFromCurrentFilter = useEffectEvent((silent: boolean) => {
-    handleCreateNote(fallbackClassId, silent);
+  const createNoteFromCurrentFilter = useEffectEvent(() => {
+    handleCreateNote(fallbackClassId);
   });
 
   useEffect(() => {
     if (!shouldCreateOnMount || hasHandledCreateOnMountRef.current) return;
     hasHandledCreateOnMountRef.current = true;
-    createNoteFromCurrentFilter(true);
+    createNoteFromCurrentFilter();
     router.replace(resetHref);
   }, [resetHref, router, shouldCreateOnMount]);
 
@@ -862,32 +822,6 @@ export function NotesWorkspace({
   // Sidebar drag-and-drop: move note to a different class
   // -------------------------------------------------------------------------
 
-  function handleNoteDrop(groupClassId: string, noteId: string) {
-    const note = notes.find((n) => n.id === noteId);
-    if (!note || note.classId === groupClassId || isTempNote(noteId)) return;
-
-    const previousClassId = note.classId;
-    setNotes((current) =>
-      current.map((n) =>
-        n.id === noteId ? { ...n, classId: groupClassId } : n,
-      ),
-    );
-    startTransition(
-      () =>
-        void saveNote(noteId, { classId: groupClassId }).catch((err) => {
-          // Without this the sidebar keeps showing the note under a class it
-          // was never filed into.
-          setNotes((current) =>
-            current.map((n) => (n.id === noteId ? { ...n, classId: previousClassId } : n)),
-          );
-          toast.error("Could not move note", {
-            description: err instanceof Error ? err.message : undefined,
-            duration: 5000,
-          });
-        }),
-    );
-  }
-
   // -------------------------------------------------------------------------
   // Sidebar multi-select
   // -------------------------------------------------------------------------
@@ -1160,15 +1094,6 @@ export function NotesWorkspace({
     return (
       <div
         key={note.id}
-        draggable={!isTemp}
-        onDragStart={(e) => {
-          setDraggedNoteId(note.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => {
-          setDraggedNoteId(null);
-          setDragOverGroupId(null);
-        }}
         onContextMenu={(e) => {
           if (isTemp) return;
           e.preventDefault();
@@ -1179,11 +1104,6 @@ export function NotesWorkspace({
         className={cx(
           "group relative flex items-center rounded-md transition",
           isSidebarSelected && "bg-accent-soft",
-          draggedNoteId &&
-            (draggedNoteId === note.id ||
-              (sidebarSelectedIds.has(draggedNoteId) &&
-                sidebarSelectedIds.has(note.id))) &&
-            "opacity-40",
         )}
       >
         {/* Selection checkbox */}
@@ -1354,6 +1274,19 @@ export function NotesWorkspace({
             </button> */}
           </div>
 
+          {/* Which class these notes belong to, and the way back out */}
+          <Link
+            href="/notes"
+            className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground transition hover:bg-surface hover:text-foreground"
+            title="Choose a different class"
+          >
+            <Folder className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+              {activeClass ? getClassLabel(activeClass) : "Notes"}
+            </span>
+            <span className="shrink-0">Change</span>
+          </Link>
+
           {/* Search */}
           <div className="border-b border-border px-3 py-2">
             <div className="relative">
@@ -1426,152 +1359,19 @@ export function NotesWorkspace({
               </section>
             ) : (
               <>
-            {recentNotes.length > 0 ? (
-              <section className="mb-5">
-                <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-                  Recents
-                </div>
-                <div className="space-y-0.5">
-                  {recentNotes.map((note) =>
-                    renderNoteItem(note, { compact: true }),
-                  )}
-                </div>
-              </section>
-            ) : null}
-
             <section className="space-y-1">
               <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-                Private
+                {activeClass ? getClassShortLabel(activeClass) : "Notes"}
               </div>
-              {groupedNotes.map((group) => {
-                const isCollapsed = collapsedGroups.has(group.id);
-                const isDragTarget =
-                  dragOverGroupId === group.id && draggedNoteId !== null;
-                const draggedNote = draggedNoteId
-                  ? notes.find((n) => n.id === draggedNoteId)
-                  : null;
-                // When dragging a selected note, at least one selected note must
-                // differ from this group's class for the drop to be meaningful.
-                const canDrop =
-                  draggedNote &&
-                  (() => {
-                    const id = draggedNoteId!;
-                    if (
-                      sidebarSelectedIds.has(id) &&
-                      sidebarSelectedIds.size > 1
-                    ) {
-                      return notes.some(
-                        (n) =>
-                          sidebarSelectedIds.has(n.id) &&
-                          n.classId !== group.classId,
-                      );
-                    }
-                    return draggedNote.classId !== group.classId;
-                  })();
-
-                return (
-                  <div
-                    key={group.id}
-                    onDragOver={(e) => {
-                      if (!canDrop) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDragOverGroupId(group.id);
-                    }}
-                    onDragEnter={(e) => {
-                      if (!canDrop) return;
-                      e.preventDefault();
-                      setDragOverGroupId(group.id);
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setDragOverGroupId(null);
-                      }
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setDragOverGroupId(null);
-                      if (draggedNoteId && canDrop) {
-                        // If the dragged note is part of the sidebar selection,
-                        // move all selected notes. Otherwise just move the one.
-                        if (
-                          sidebarSelectedIds.has(draggedNoteId) &&
-                          sidebarSelectedIds.size > 1
-                        ) {
-                          void handleBulkMove(group.classId);
-                        } else {
-                          handleNoteDrop(group.classId, draggedNoteId);
-                        }
-                      }
-                      setDraggedNoteId(null);
-                    }}
-                    className={cx(
-                      "rounded-lg transition-colors",
-                      isDragTarget && canDrop
-                        ? "bg-accent-soft ring-1 ring-accent/30"
-                        : "",
-                    )}
-                  >
-                    <div className="group flex items-center gap-1 rounded-md text-muted-foreground hover:bg-surface hover:text-foreground">
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group.id)}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
-                        aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
-                      >
-                        {isCollapsed ? (
-                          <ChevronRight
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <ChevronDown
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group.id)}
-                        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-sm font-medium"
-                      >
-                        <Folder
-                          className="h-4 w-4 shrink-0 opacity-70"
-                          aria-hidden="true"
-                        />
-                        <span className="truncate" title={group.title}>
-                          {group.shortTitle}
-                        </span>
-                        <span className="ml-auto pr-1 text-[11px] text-muted-foreground">
-                          {group.notes.length}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleCreateNote(group.classId)}
-                        disabled={isPending}
-                        className="mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-0 hover:bg-surface-elevated group-hover:opacity-100 disabled:opacity-40"
-                        aria-label={`New note in ${group.title}`}
-                      >
-                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                      </button>
-                    </div>
-
-                    {!isCollapsed && group.notes.length > 0 ? (
-                      <div className="ml-3 space-y-0.5 border-l border-border/70 pl-1">
-                        {group.notes.map((note) => renderNoteItem(note))}
-                      </div>
-                    ) : null}
-
-                    {isDragTarget && canDrop ? (
-                      <div className="mx-2 mb-1 rounded-md border border-dashed border-accent/50 bg-accent/5 px-2 py-1.5 text-center text-xs text-accent">
-                        Drop to move here
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+              <div className="space-y-0.5">
+                {notes.length === 0 ? (
+                  <p className="px-2 py-1 text-xs text-muted-foreground">
+                    No notes in this class yet.
+                  </p>
+                ) : (
+                  notes.map((note) => renderNoteItem(note))
+                )}
+              </div>
             </section>
 
                 {/* Trash */}

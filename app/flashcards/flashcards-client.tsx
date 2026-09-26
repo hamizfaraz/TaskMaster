@@ -33,6 +33,9 @@ import { cx } from "@/lib/utils";
 import type { FlashcardDeck, FlashcardItem } from "@/lib/flashcards/types";
 
 type FlashcardNoteOption = {
+  /** Which class the note is filed under, so a picker spanning courses is legible. */
+  className?: string | null;
+
   id: string;
   title: string;
   hasEmbedding: boolean;
@@ -714,6 +717,7 @@ export function FlashcardsClient({
                                 {note.title}
                               </span>
                               <span className="mt-1 block text-sm text-muted-foreground">
+                                {note.className ? `${note.className} · ` : ""}
                                 {note.hasEmbedding
                                   ? "Embedding ready"
                                   : "Embedding required"}
