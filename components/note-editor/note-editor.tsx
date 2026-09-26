@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { AlertCircle, Check, Code2, Eye, Loader2, Sparkles, Telescope } from "lucide-react";
 import { BlockMenu } from "@/components/note-editor/block-menu";
 import type { ImageUploader } from "@/components/note-editor/extensions/image-drop";
@@ -18,6 +18,14 @@ const MarkdownEditor = dynamic(() => import("@/components/note-editor/markdown-e
   loading: () => <EditorSkeleton />,
 });
 
+/** What the workspace can ask the editor for. */
+export type NoteEditorHandle = {
+  /** The text as it stands right now, ahead of the autosave debounce. */
+  getMarkdown(): string;
+  /** Push any pending edit to the server and wait for it. */
+  flush(): Promise<void>;
+};
+
 export type NoteEditorProps = {
   noteId: string;
   initialMarkdown: string;
@@ -27,6 +35,8 @@ export type NoteEditorProps = {
   readOnly?: boolean;
   /** Where dropped/pasted images go. Defaults to an inline data URL (see #86). */
   uploadImage?: ImageUploader;
+  /** Lets the workspace read the live text, which lags behind `notes` by the debounce. */
+  handleRef?: Ref<NoteEditorHandle>;
   className?: string;
 };
 
@@ -90,6 +100,7 @@ export function NoteEditor({
   saveEnabled = true,
   readOnly = false,
   uploadImage,
+  handleRef,
   className,
 }: NoteEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
@@ -186,6 +197,15 @@ export function NoteEditor({
       setIsAsking(false);
     }
   }
+
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      getMarkdown: () => value,
+      flush,
+    }),
+    [value, flush],
+  );
 
   const handleChange = (next: string) => {
     if (!readOnly) {

@@ -5,6 +5,7 @@ import { note } from "@/lib/db/schema";
 import { requireServerSession } from "@/lib/auth-session";
 import { listUserClasses } from "@/lib/classes/queries";
 import { noteRecordToWorkspaceNote, sortWorkspaceNotes } from "@/lib/notes/records";
+import { emptyNoteDocument } from "@/lib/notes/types";
 import { NotesWorkspace } from "@/app/notes/notes-workspace";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -35,16 +36,23 @@ export default async function NotesPage(props: { searchParams?: SearchParams }) 
     .where(eq(note.userId, session.user.id))
     .orderBy(desc(note.updatedAt));
 
-  // The client never reads a note's vector, and shipping 768 floats per note
-  // into the RSC payload costs roughly 1.5 MB at 100 notes. The embedding is
-  // still read above so `hasEmbedding`-style derivations stay correct; only
-  // the vector itself is dropped before it crosses the wire.
+  // Two things are read on the server and then dropped before crossing the
+  // wire, because nothing on the client reads either and both are large:
+  //
+  //   embedding          768 floats per note, ~1.5 MB at 100 notes
+  //   content.document   the derived block cache, 1.1 MB across 58 notes —
+  //                      twelve times the markdown it duplicates
+  //
+  // The editor takes `content.markdown`; `content.document` has no reader
+  // outside the server. They stay in the query so the derivations above
+  // (`hasEmbedding`, the legacy markdown fallback) still see real values.
   const initialNotes = sortWorkspaceNotes(
     rows.map((row) => {
       const workspaceNote = noteRecordToWorkspaceNote(row);
       return {
         ...workspaceNote,
         embedding: workspaceNote.embedding && workspaceNote.embedding.length > 0 ? [] : workspaceNote.embedding,
+        content: { markdown: workspaceNote.content.markdown, document: emptyNoteDocument },
         generation: workspaceNote.generation
           ? { ...workspaceNote.generation, embedding: [] }
           : workspaceNote.generation,

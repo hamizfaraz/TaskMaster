@@ -15,10 +15,12 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Download,
   FileText,
   Folder,
   FolderInput,
   Plus,
+  Search,
   Sparkles,
   Square,
   Trash2,
@@ -36,7 +38,8 @@ import {
   type NoteRecord,
   type WorkspaceNote,
 } from "@/lib/notes/records";
-import { NoteEditor } from "@/components/note-editor/note-editor";
+import { NoteEditor, type NoteEditorHandle } from "@/components/note-editor/note-editor";
+import { searchNotes } from "@/lib/notes/search";
 import { PermanentSaveError } from "@/components/note-editor/use-autosave";
 
 type WorkspaceClass = {
@@ -240,6 +243,11 @@ export function NotesWorkspace({
     () => new Set(),
   );
   const [isPending, startTransition] = useTransition();
+  const [searchQuery, setSearchQuery] = useState("");
+  // The editor's text runs ahead of `notes`, which only catches up when an
+  // autosave response lands. Export and duplicate read from here so neither
+  // silently drops the last few seconds of typing.
+  const noteEditorRef = useRef<NoteEditorHandle | null>(null);
 
   // Sidebar drag-and-drop state
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
@@ -277,6 +285,18 @@ export function NotesWorkspace({
     () => notes.find((note) => note.id === selectedId) ?? notes[0] ?? null,
     [notes, selectedId],
   );
+  // The page already ships every note's markdown, so searching is a filter over
+  // data in hand: no endpoint, no index, no round-trip.
+  const searchResults = useMemo(
+    () =>
+      searchNotes(
+        notes.map((n) => ({ id: n.id, title: n.title, markdown: n.content.markdown, note: n })),
+        searchQuery,
+      ),
+    [notes, searchQuery],
+  );
+  const isSearching = searchQuery.trim().length > 0;
+
   const recentNotes = useMemo(
     () => sortWorkspaceNotes(notes).slice(0, 8),
     [notes],
@@ -688,6 +708,29 @@ export function NotesWorkspace({
       });
       throw err;
     }
+  }
+
+  /**
+   * Download the note as a .md file.
+   *
+   * Markdown is the canonical format, so this is the file itself rather than
+   * a conversion: what comes out is exactly what is stored.
+   */
+  function handleExportNote() {
+    if (!selectedNote) return;
+
+    const title = getRenderableTitle(draftTitle).trim() || "note";
+    const safeName = title.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80) || "note";
+    const markdown = noteEditorRef.current?.getMarkdown() ?? selectedNote.content.markdown;
+
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeName}.md`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function handleTitleCommit() {
@@ -1205,8 +1248,78 @@ export function NotesWorkspace({
             </button> */}
           </div>
 
+          {/* Search */}
+          <div className="border-b border-border px-3 py-2">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setSearchQuery("");
+                }}
+                placeholder="Search notes"
+                aria-label="Search notes"
+                className="h-8 w-full rounded-md border border-border bg-surface pl-7 pr-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-border-strong"
+              />
+            </div>
+          </div>
+
           {/* Note list */}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3">
+            {isSearching ? (
+              <section className="space-y-1">
+                <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+                  {searchResults.length === 0
+                    ? "No matches"
+                    : `${searchResults.length} match${searchResults.length === 1 ? "" : "es"}`}
+                </div>
+                <div className="space-y-0.5">
+                  {searchResults.map((match) => (
+                    <button
+                      key={match.note.id}
+                      type="button"
+                      onClick={() => setSelectedId(match.note.id)}
+                      className={cx(
+                        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition",
+                        selectedNote?.id === match.note.id
+                          ? "bg-surface text-foreground"
+                          : "text-muted-foreground hover:bg-surface hover:text-foreground",
+                      )}
+                    >
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {getRenderableTitle(match.note.title)}
+                      </span>
+                      {match.snippet ? (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {match.snippetMatch ? (
+                            <>
+                              {match.snippet.slice(0, match.snippetMatch.start)}
+                              <mark className="rounded-[0.2em] bg-accent-soft px-0.5 text-foreground">
+                                {match.snippet.slice(
+                                  match.snippetMatch.start,
+                                  match.snippetMatch.start + match.snippetMatch.length,
+                                )}
+                              </mark>
+                              {match.snippet.slice(
+                                match.snippetMatch.start + match.snippetMatch.length,
+                              )}
+                            </>
+                          ) : (
+                            match.snippet
+                          )}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <>
             {recentNotes.length > 0 ? (
               <section className="mb-5">
                 <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
@@ -1354,6 +1467,8 @@ export function NotesWorkspace({
                 );
               })}
             </section>
+              </>
+            )}
           </div>
 
           {/* Bulk selection action bar */}
@@ -1480,6 +1595,15 @@ export function NotesWorkspace({
                   </button>
                   <button
                     type="button"
+                    onClick={handleExportNote}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                    aria-label="Download note as Markdown"
+                    title="Download as Markdown"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleDuplicateNote()}
                     disabled={isPending || isTempNote(selectedNote.id)}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground disabled:opacity-60"
@@ -1530,6 +1654,7 @@ export function NotesWorkspace({
                 </div>
 
                 <NoteEditor
+                  handleRef={noteEditorRef}
                   className="mx-auto w-full px-4 pb-10 pt-6 md:px-10"
                   noteId={selectedNote.id}
                   initialMarkdown={selectedNote.content.markdown}

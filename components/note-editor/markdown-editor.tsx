@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { Completion } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
@@ -180,8 +181,12 @@ export default function MarkdownEditor({
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
           // Ahead of defaultKeymap so Mod-i reaches italics rather than
           // selectParentSyntax.
+          // Find and replace inside a note. `top: true` keeps the panel out of
+          // the way of the gutter control, which sits at the bottom left.
+          search({ top: true }),
+          highlightSelectionMatches(),
           inlineFormatKeymap(),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+          keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((update) => {
             if (
               update.docChanged &&
