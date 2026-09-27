@@ -3,6 +3,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import type { MathfieldElement } from "mathlive";
 import {
   createLatexSourceUi,
+  createMathCloseButton,
   createMathFieldElement,
   focusMathField,
 } from "@/components/note-editor/extensions/math-field-ui";
@@ -200,8 +201,9 @@ export class MathFieldWidget extends WidgetType {
 
     const field = createMathFieldElement(initialLatex, this.session.display);
     const { toggle, source } = createLatexSourceUi(initialLatex, this.session.display ? 3 : 1);
+    const closeButton = createMathCloseButton();
 
-    wrapper.append(field, toggle, source);
+    wrapper.append(field, toggle, closeButton, source);
 
     const focusField = () => focusMathField(field);
 
@@ -350,6 +352,9 @@ export class MathFieldWidget extends WidgetType {
       event.preventDefault();
       exit(detail?.direction === "backward" || detail?.direction === "upward" ? "before" : "after");
     });
+
+    closeButton.addEventListener("mousedown", (event) => event.preventDefault());
+    closeButton.addEventListener("click", () => exit("after"));
 
     toggle.addEventListener("mousedown", (event) => event.preventDefault());
     toggle.addEventListener("click", () => {

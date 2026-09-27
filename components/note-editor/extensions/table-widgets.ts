@@ -3,6 +3,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 import { renderKatexHtml } from "@/components/note-editor/extensions/katex-render";
 import {
   createLatexSourceUi,
+  createMathCloseButton,
   createMathFieldElement,
   focusMathField,
 } from "@/components/note-editor/extensions/math-field-ui";
@@ -438,7 +439,8 @@ class TableWidget extends WidgetType {
 
           const field = createMathFieldElement(latex, false);
           const { toggle, source } = createLatexSourceUi(latex, 1);
-          host.append(field, toggle, source);
+          const closeButton = createMathCloseButton();
+          host.append(field, toggle, closeButton, source);
 
           const write = (value: string) => {
             const at = locate();
@@ -472,6 +474,12 @@ class TableWidget extends WidgetType {
               const again = cellAt(wrapper, rowIndex, columnIndex);
               if (again) beginEdit(again);
             }
+          });
+
+          closeButton.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
           });
 
           toggle.addEventListener("mousedown", (event) => {

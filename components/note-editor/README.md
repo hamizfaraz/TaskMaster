@@ -32,8 +32,8 @@ from a block document.
 - `extensions/katex-render.ts` — cached `katex.renderToString`, shared by the
   math and table widgets.
 - `extensions/math-field-ui.ts` — the `<math-field>` attributes, the guarded
-  focus, and the "LaTeX" toggle/textarea pair, shared so a formula edits the same
-  way inside a table cell as in prose.
+  focus, the "LaTeX" toggle/textarea pair, and the close button, shared so a
+  formula edits the same way inside a table cell as in prose.
 - `extensions/math-widgets.ts` — StateField that renders math regions with
   KaTeX, or with a MathLive field for the region being edited; `Mod-e` and
   clicking a formula open it.

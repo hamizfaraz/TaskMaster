@@ -156,6 +156,35 @@ describe("editing a formula inside a table cell", () => {
     expect(cell.querySelector("math-field")).toBe(field);
   });
 
+  it("offers a close button that leaves the formula rendered", async () => {
+    const { host } = mount();
+    const { cell } = await openFormula(host, 1, 0);
+    const close = cell.querySelector<HTMLButtonElement>(
+      '[aria-label="Close the formula editor"]',
+    );
+    expect(close).not.toBeNull();
+    act(() => {
+      close!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(cell.querySelector("math-field")).toBeNull();
+    expect(cell.querySelector(".katex")).not.toBeNull();
+  });
+
+  it("keeps an edit made before closing", async () => {
+    const { host, view } = mount();
+    const { cell, field } = await openFormula(host, 1, 0);
+    act(() => {
+      field!.value = "\\tau";
+      field!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      cell
+        .querySelector<HTMLButtonElement>('[aria-label="Close the formula editor"]')!
+        .dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(view.state.doc.toString()).toContain("| $\\tau$ |");
+  });
+
   it("closes on Escape and shows the formula rendered again", async () => {
     const { host } = mount();
     const { cell, field } = await openFormula(host, 1, 0);

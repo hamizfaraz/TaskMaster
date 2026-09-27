@@ -243,6 +243,12 @@ html.dark .notes-app-background__ascii {
   white-space: nowrap;
 }
 
+.cm-note-mathfield-close {
+  /* Square rather than a pill: it holds one glyph, not a word. */
+  padding: 0.2em 0.4em;
+  font-size: 0.75em;
+}
+
 .cm-note-mathfield-toggle:hover {
   color: var(--foreground);
   border-color: var(--border-strong);

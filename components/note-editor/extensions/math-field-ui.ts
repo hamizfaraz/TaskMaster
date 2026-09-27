@@ -56,3 +56,21 @@ export function createLatexSourceUi(latex: string, rows: number) {
 
   return { toggle, source };
 }
+
+/**
+ * The button that closes a formula editor.
+ *
+ * Escape and clicking away already close one, but neither is visible: nothing on
+ * the field said how to leave it, which is a poor thing to discover by guessing
+ * in the middle of typing an equation. Shares the toggle's class so it matches
+ * the control beside it, with its own class for the tighter square shape.
+ */
+export function createMathCloseButton() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "cm-note-mathfield-toggle cm-note-mathfield-close";
+  button.textContent = "✕";
+  button.title = "Close the formula editor";
+  button.setAttribute("aria-label", "Close the formula editor");
+  return button;
+}
