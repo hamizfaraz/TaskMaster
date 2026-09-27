@@ -143,6 +143,13 @@ describe("findTableRanges", () => {
     expect(findTableRanges(doc)).toEqual([]);
   });
 
+  it("still finds a table whose cells contain inline code", () => {
+    // findCodeRanges reports inline spans too, so testing for overlap rather
+    // than containment dropped any table with a `code` cell.
+    const doc = ["Intro.", "", "| Term | Detail |", "| --- | --- |", "| `a` | `b` |"].join("\n");
+    expect(findTableRanges(doc)).toHaveLength(1);
+  });
+
   it("finds two separate tables", () => {
     expect(findTableRanges(`${table}\n\n${table}`)).toHaveLength(2);
   });

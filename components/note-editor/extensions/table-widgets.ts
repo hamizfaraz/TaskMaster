@@ -1,5 +1,8 @@
 import { type EditorState, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { renderKatexHtml } from "@/components/note-editor/extensions/katex-render";
+import { decodeHtmlAttribute, INLINE_MATH_SPAN_RE } from "@/lib/notes/markdown";
+import { renderInlineMarkdownText } from "@/lib/notes/parse-markdown";
 import {
   cellOffsetInLine,
   columnCount,
@@ -89,6 +92,37 @@ function focusCell(view: EditorView, element: HTMLElement, rowIndex: number, col
 // DOM
 // ---------------------------------------------------------------------------
 
+/**
+ * A cell's inline Markdown as HTML, with LaTeX rendered by KaTeX.
+ *
+ * Cells hold raw inline Markdown (see `NoteTableBlockData`), so rendering them
+ * as plain text showed `$\pi$` and `**bold**` literally. `renderInlineMarkdownText`
+ * is the same function that builds the stored block document, so the grid shows
+ * exactly what the rest of the pipeline thinks the cell contains — including its
+ * `\|` escapes and code spans — rather than a second interpretation of it.
+ *
+ * It emits math as a `note-inline-math` span carrying the LaTeX in an attribute;
+ * those become KaTeX here. Only inline math can occur, because a GFM table row is
+ * a single line and `$$` display math cannot fit on one.
+ */
+function renderCellHtml(cell: string): string {
+  INLINE_MATH_SPAN_RE.lastIndex = 0;
+  return renderInlineMarkdownText(cell).replace(
+    INLINE_MATH_SPAN_RE,
+    (_match, latex: string) =>
+      `<span class="cm-note-table-math">${renderKatexHtml(decodeHtmlAttribute(latex), false)}</span>`,
+  );
+}
+
+/** Fill a cell element, leaving a visible target when the cell is empty. */
+function fillCell(element: HTMLElement, cell: string) {
+  if (cell.trim() === "") {
+    element.textContent = " ";
+    return;
+  }
+  element.innerHTML = renderCellHtml(cell);
+}
+
 function controlButton(label: string, title: string, onPress: () => void) {
   const button = document.createElement("button");
   button.type = "button";
@@ -143,7 +177,7 @@ class TableWidget extends WidgetType {
 
       const text = document.createElement("span");
       text.className = "cm-note-table-cell";
-      text.textContent = cell || " ";
+      fillCell(text, cell);
       text.addEventListener("mousedown", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -202,7 +236,7 @@ class TableWidget extends WidgetType {
         const td = document.createElement("td");
         td.style.textAlign = model.align[columnIndex] ?? "left";
         td.className = "cm-note-table-cell";
-        td.textContent = cell || " ";
+        fillCell(td, cell);
         td.addEventListener("mousedown", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -339,6 +373,14 @@ const tableTheme = EditorView.baseTheme({
   ".cm-note-table-btn:hover": {
     color: "var(--accent)",
     borderColor: "var(--accent)",
+  },
+  ".cm-note-table-math .katex": {
+    fontSize: "1em",
+  },
+  // A link in a cell stays visible as a link but is not clickable: in the grid a
+  // click means "edit this cell", and navigating away mid-edit is never wanted.
+  ".cm-note-table-grid a": {
+    pointerEvents: "none",
   },
   ".cm-note-table-footer": {
     display: "flex",

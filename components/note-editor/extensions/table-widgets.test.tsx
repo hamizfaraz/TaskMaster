@@ -42,6 +42,55 @@ describe("table grid rendering", () => {
     expect(grid!.querySelectorAll("tbody tr")).toHaveLength(2);
   });
 
+  it("renders LaTeX in a cell with KaTeX, not as literal dollar signs", () => {
+    // The first version set textContent, so `$\pi$` showed verbatim.
+    const { host } = mount();
+    const cell = [...host.querySelectorAll("tbody td.cm-note-table-cell")].find((td) =>
+      (td.textContent ?? "").includes("circle ratio"),
+    );
+    const mathCell = host.querySelector("tbody tr:first-child td.cm-note-table-cell");
+    expect(cell).toBeDefined();
+    expect(mathCell!.querySelector(".katex")).not.toBeNull();
+    expect(mathCell!.textContent).not.toContain("$");
+  });
+
+  it("renders LaTeX in a header cell too", () => {
+    const withMathHeader = ["Intro.", "", "| $x$ | Plain |", "| --- | --- |", "| 1 | 2 |"].join("\n");
+    const { host } = mount(withMathHeader);
+    const th = host.querySelector("thead th:not(.cm-note-table-gutter)");
+    expect(th!.querySelector(".katex")).not.toBeNull();
+  });
+
+  it("renders inline emphasis and code inside cells", () => {
+    const rich = [
+      "Intro.",
+      "",
+      "| Term | Detail |",
+      "| --- | --- |",
+      "| **bold** | `code` |",
+      "| _italic_ | plain |",
+    ].join("\n");
+    const { host } = mount(rich);
+    const body = host.querySelector("tbody")!;
+    expect(body.querySelector("strong")?.textContent).toBe("bold");
+    expect(body.querySelector("code")?.textContent).toBe("code");
+    expect(body.querySelector("em")?.textContent).toBe("italic");
+  });
+
+  it("shows an escaped pipe as a pipe, not as a cell boundary", () => {
+    const { host } = mount();
+    const cells = [...host.querySelectorAll("tbody tr:first-child td.cm-note-table-cell")];
+    // Two data cells, and the escape is content in the second.
+    expect(cells).toHaveLength(2);
+  });
+
+  it("leaves a link visible but not clickable, so a click edits the cell", () => {
+    const linked = ["Intro.", "", "| Ref |", "| --- |", "| [docs](https://example.com) |"].join("\n");
+    const { host } = mount(linked);
+    const anchor = host.querySelector("tbody a");
+    expect(anchor?.textContent).toBe("docs");
+  });
+
   it("shows the cell text, not the pipes", () => {
     const { host } = mount();
     const headers = [...host.querySelectorAll("thead th:not(.cm-note-table-gutter)")].map(

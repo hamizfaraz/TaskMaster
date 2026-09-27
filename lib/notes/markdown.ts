@@ -38,10 +38,17 @@ turndown.use(gfm);
 const MATH_PLACEHOLDER_OPEN = "\uE000";
 const MATH_PLACEHOLDER_CLOSE = "\uE001";
 
-const INLINE_MATH_SPAN_RE =
+/**
+ * Matches the inline-math span that `renderInlineMarkdownText` emits, capturing
+ * its `data-latex`. Exported because both directions need it: the serializer
+ * turns these back into `$…$`, and the editor's table widget renders the
+ * captured LaTeX with KaTeX.
+ */
+export const INLINE_MATH_SPAN_RE =
   /<span[^>]*class="[^"]*\bnote-inline-math\b[^"]*"[^>]*data-latex="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi;
 
-function decodeHtmlAttribute(value: string) {
+/** Inverse of the attribute escaping in `parse-markdown.ts`. */
+export function decodeHtmlAttribute(value: string) {
   return value
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")

@@ -87,8 +87,12 @@ export function findTableRanges(text: string): TableRange[] {
 
     const from = lineStarts[index]!;
     const to = lineStarts[last]! + (lines[last] ?? "").length;
-    const inCode = excluded.some((range) => range.from < to && range.to > from);
-    if (!inCode) ranges.push({ from, to });
+    // Containment, not overlap. `findCodeRanges` reports inline code spans as
+    // well as fences, and a cell holding `code` overlaps the table it sits in —
+    // testing for overlap dropped every table that contained an inline code
+    // span. Only a fence that encloses the whole table should exclude it.
+    const insideFence = excluded.some((range) => range.from <= from && range.to >= to);
+    if (!insideFence) ranges.push({ from, to });
     index = last + 1;
   }
 
