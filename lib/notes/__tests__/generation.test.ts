@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   extractDocumentText,
-  MAX_INLINE_DOCUMENT_BYTES,
   OCR_SUPPORTED_MIME_TYPES,
   rebalanceGeneratedTopics,
 } from "@/lib/notes/generation";
+import { MAX_INLINE_DOCUMENT_BYTES } from "@/lib/notes/limits";
 
 describe("rebalanceGeneratedTopics", () => {
   it("merges many small generated topics into fewer dense notes", () => {

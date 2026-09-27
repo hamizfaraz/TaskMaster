@@ -4,6 +4,7 @@ import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { generateTopicNotesFromFile, markdownToNoteDocument } from "@/lib/notes/generation";
+import { MAX_UPLOAD_FILE_BYTES } from "@/lib/notes/limits";
 import { rateLimitMessage } from "@/lib/provider-errors";
 
 export const runtime = "nodejs";
@@ -24,7 +25,6 @@ const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
 ]);
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 // POST /api/notes/upload — create generated topic notes from an uploaded file
 export async function POST(req: Request) {
@@ -62,10 +62,10 @@ export async function POST(req: Request) {
   }
 
   // Validate file size
-  if (file.size > MAX_FILE_SIZE) {
+  if (file.size > MAX_UPLOAD_FILE_BYTES) {
     return NextResponse.json(
       {
-        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is ${MAX_FILE_SIZE / 1024 / 1024} MB.`,
+        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is ${MAX_UPLOAD_FILE_BYTES / 1024 / 1024} MB.`,
       },
       { status: 413 },
     );

@@ -1,5 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
+import { FinishReason, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import { MAX_INLINE_DOCUMENT_BYTES } from "@/lib/notes/limits";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
 
 // Gemini's image input formats, plus PDF. Azure also accepted GIF; Gemini does
@@ -13,10 +14,6 @@ export const OCR_SUPPORTED_MIME_TYPES = new Set([
   "image/heic",
   "image/heif",
 ]);
-// Inline bytes are base64-encoded, inflating by 4/3 against Gemini's 20 MB
-// total request limit. The upload route caps files at 10 MB, so this is a guard
-// against that cap being raised without the Files API being adopted first.
-export const MAX_INLINE_DOCUMENT_BYTES = 14 * 1024 * 1024;
 const EMBEDDING_DIMENSIONS = 768;
 const MAX_GENERATED_TOPIC_NOTES = 4;
 const TARGET_MARKDOWN_CHARS_PER_TOPIC_NOTE = 4500;
@@ -126,6 +123,15 @@ export async function extractDocumentText(
       temperature: 0,
     },
   });
+
+  // A document longer than the model's output limit comes back truncated with no
+  // error. Accepting it would store half a document as though it were whole, and
+  // nothing downstream could tell: the source file is not kept.
+  if (response.candidates?.[0]?.finishReason === FinishReason.MAX_TOKENS) {
+    throw new Error(
+      `${fileName} is too long to transcribe in one pass. Split it into smaller documents.`,
+    );
+  }
 
   const parsedText = response.text?.trim();
   if (!parsedText) {

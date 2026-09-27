@@ -31,6 +31,12 @@ import { useAsciiBackgroundEnabled } from "@/components/shell/background-prefere
 import { Button } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 import {
+  formatBytes,
+  MAX_NOTE_MARKDOWN_CHARS,
+  MAX_UPLOAD_FILE_BYTES,
+  NOTE_TOO_LARGE_MESSAGE,
+} from "@/lib/notes/limits";
+import {
   noteRecordToWorkspaceNote,
   isTempNoteId,
   sortWorkspaceNotes,
@@ -670,6 +676,15 @@ export function NotesWorkspace({
       });
       return;
     }
+    if (file.size > MAX_UPLOAD_FILE_BYTES) {
+      // Refused here rather than after the upload: the answer cannot change, so
+      // sending 10+ MB first only makes the user wait for it.
+      toast.error("That file is too large", {
+        description: `${formatBytes(file.size)} — the maximum is ${formatBytes(MAX_UPLOAD_FILE_BYTES)}.`,
+        duration: 6000,
+      });
+      return;
+    }
     const toastId = toast.loading(`Parsing ${file.name}…`, {
       description: "This can take up to a minute for large files.",
       duration: Infinity,
@@ -743,6 +758,14 @@ export function NotesWorkspace({
 
     try {
       const text = await file.text();
+      if (text.length > MAX_NOTE_MARKDOWN_CHARS) {
+        toast.error("That file is too long to import", {
+          id: toastId,
+          description: NOTE_TOO_LARGE_MESSAGE,
+          duration: 6000,
+        });
+        return;
+      }
       const title = file.name.replace(/\.md$/i, "").trim() || "Imported Note";
 
       const response = await fetch("/api/notes", {

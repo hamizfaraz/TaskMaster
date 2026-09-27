@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ContentTooLargeError, NOTE_TOO_LARGE_MESSAGE } from "@/lib/notes/limits";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -101,7 +102,12 @@ export async function POST(req: Request) {
       body.markdown !== undefined
         ? normalizeNoteWriteMarkdown(body.markdown)
         : normalizeNoteWriteContent(body.content);
-  } catch {
+  } catch (error) {
+    // "Too large" is well-formed content, not invalid content. Saying the wrong
+    // one sends people editing text that was never the problem.
+    if (error instanceof ContentTooLargeError) {
+      return NextResponse.json({ error: NOTE_TOO_LARGE_MESSAGE }, { status: 413 });
+    }
     return NextResponse.json(
       { error: "Invalid note content" },
       { status: 400 },

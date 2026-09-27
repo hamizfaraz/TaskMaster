@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ContentTooLargeError, NOTE_TOO_LARGE_MESSAGE } from "@/lib/notes/limits";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
@@ -90,7 +91,10 @@ export async function PATCH(req: Request, ctx: RouteContext) {
       const content = normalizeNoteWriteMarkdown(body.markdown);
       updates.content = preserveGenerationMetadata(existing.content, content.document);
       updates.markdown = content.markdown;
-    } catch {
+    } catch (error) {
+      if (error instanceof ContentTooLargeError) {
+        return NextResponse.json({ error: NOTE_TOO_LARGE_MESSAGE }, { status: 413 });
+      }
       return NextResponse.json({ error: "Invalid note markdown" }, { status: 400 });
     }
   } else if (body.content !== undefined) {
