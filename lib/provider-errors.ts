@@ -60,10 +60,24 @@ export function isRateLimited(error: unknown): boolean {
 export function isQuotaExhausted(error: unknown): boolean {
   if (!isRateLimited(error)) return false;
   const text = textOf(error).toLowerCase();
-  // Per-minute limits name a short retry; daily ones do not.
+
+  // Gemini names the exhausted quota outright, so read that before guessing
+  // from the retry delay. A real exhausted daily quota looks like
+  //   quotaId "GenerateRequestsPerDayPerProjectPerModel-FreeTier", limit 20
+  // and *still* asks the caller to "retry in 37s". Trusting that delay told
+  // people to wait a minute for an allowance that resets tomorrow, which is
+  // the same wrong-advice failure this module exists to prevent.
+  if (text.includes("perday") || text.includes("per day") || text.includes("per_day")) {
+    return true;
+  }
+  if (text.includes("perminute") || text.includes("per minute") || text.includes("per_minute")) {
+    return false;
+  }
+
+  // No named quota: a short retry means a burst limit, anything else is daily.
   const retrySeconds = text.match(/retry in ([0-9.]+)s/)?.[1];
   if (retrySeconds && Number(retrySeconds) < 120) return false;
-  return text.includes("per day") || text.includes("daily") || !retrySeconds;
+  return text.includes("daily") || !retrySeconds;
 }
 
 /** The message to show the user for a provider failure, or null if it is not one. */
