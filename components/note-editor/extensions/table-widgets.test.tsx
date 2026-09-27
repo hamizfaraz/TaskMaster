@@ -112,13 +112,23 @@ describe("table grid rendering", () => {
     expect(host.querySelector(".cm-note-table-grid")).toBeNull();
   });
 
-  it("shows the markdown source when the cursor is inside the table", () => {
+  it("keeps the grid even when the selection reaches the table", () => {
+    // The markdown is never shown in preview; Source mode is the only way to see
+    // it. Revealing pipes on selection was the old behaviour.
     const { host, view } = mount();
     const inside = doc.indexOf("circle ratio");
     act(() => {
       view.dispatch({ selection: { anchor: inside } });
     });
-    expect(host.querySelector(".cm-note-table-grid")).toBeNull();
+    expect(host.querySelector(".cm-note-table-grid")).not.toBeNull();
+    expect(host.textContent).not.toContain("| --- |");
+  });
+
+  it("never shows the pipe syntax or the delimiter row", () => {
+    const { host } = mount();
+    const text = host.textContent ?? "";
+    expect(text).not.toContain("---");
+    expect(text).not.toContain("|");
   });
 });
 
@@ -203,17 +213,162 @@ describe("row and column controls", () => {
   });
 });
 
-describe("clicking a cell", () => {
-  it("moves the cursor into that cell's markdown", () => {
+/** Click a cell open and return its input. */
+function edit(host: HTMLElement, row: number, col: number) {
+  const cell = host.querySelector<HTMLElement>(
+    `.cm-note-table-cell[data-row="${row}"][data-col="${col}"]`,
+  );
+  if (!cell) throw new Error(`no cell at ${row},${col}`);
+  act(() => {
+    cell.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  const input = cell.querySelector<HTMLInputElement>("input.cm-note-table-input");
+  if (!input) throw new Error(`cell ${row},${col} did not open for editing`);
+  return { cell, input };
+}
+
+/** Type a whole value into an open cell input. */
+function type(input: HTMLInputElement, value: string) {
+  act(() => {
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function key(input: HTMLInputElement, init: KeyboardEventInit) {
+  act(() => {
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+  });
+}
+
+describe("editing a cell in place", () => {
+  it("opens an input holding the cell's raw markdown, not its rendering", () => {
+    const { host } = mount();
+    // The rendered cell shows a pi; the input must show the LaTeX that made it.
+    const { input } = edit(host, 1, 0);
+    expect(input.value).toBe("$\\pi$");
+  });
+
+  it("writes typing straight into the document", () => {
     const { host, view } = mount();
-    const cell = [...host.querySelectorAll<HTMLElement>("tbody td.cm-note-table-cell")].find((td) =>
-      (td.textContent ?? "").includes("Euler"),
-    );
-    expect(cell).toBeDefined();
+    const { input } = edit(host, 1, 1);
+    type(input, "ratio of circumference");
+    expect(view.state.doc.toString()).toContain("| $\\pi$ | ratio of circumference |");
+  });
+
+  it("changes only the edited cell, leaving the rest of the row alone", () => {
+    const { host, view } = mount();
+    const { input } = edit(host, 2, 1);
+    type(input, "Euler's number");
+    const text = view.state.doc.toString();
+    expect(text).toContain("| $e$ | Euler's number |");
+    expect(text).toContain("| $\\pi$ | circle ratio |");
+  });
+
+  it("escapes a typed pipe so it stays inside the cell", () => {
+    const { host, view } = mount();
+    const { input } = edit(host, 2, 1);
+    type(input, "a | b");
+    expect(view.state.doc.toString()).toContain("| $e$ | a \\| b |");
+    // And the table still has two columns, not three.
+    expect(host.querySelectorAll("thead th:not(.cm-note-table-gutter)")).toHaveLength(2);
+  });
+
+  it("renders the new value again once the cell is left", () => {
+    const { host } = mount();
+    const { cell, input } = edit(host, 2, 0);
+    type(input, "$\\alpha$");
     act(() => {
-      cell!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      input.dispatchEvent(new FocusEvent("blur"));
     });
+    expect(cell.querySelector("input")).toBeNull();
+    expect(cell.querySelector(".katex")).not.toBeNull();
+  });
+
+  it("keeps the input alive across the document update, so typing is not interrupted", () => {
+    const { host } = mount();
+    const { cell, input } = edit(host, 1, 1);
+    type(input, "first");
+    type(input, "first second");
+    // Same element still in the DOM and still holding the caret's value.
+    expect(cell.querySelector("input")).toBe(input);
+    expect(input.value).toBe("first second");
+  });
+
+  it("opens a heading cell for editing too", () => {
+    const { host, view } = mount();
+    const { input } = edit(host, 0, 1);
+    expect(input.value).toBe("Meaning");
+    type(input, "Definition");
+    expect(view.state.doc.toString()).toContain("| Symbol | Definition |");
+  });
+});
+
+describe("keyboard navigation between cells", () => {
+  it("moves to the next cell on Tab", () => {
+    const { host } = mount();
+    const { input } = edit(host, 1, 0);
+    key(input, { key: "Tab" });
+    const next = host.querySelector<HTMLElement>('.cm-note-table-cell[data-row="1"][data-col="1"]');
+    expect(next!.querySelector("input")).not.toBeNull();
+  });
+
+  it("moves to the previous cell on Shift+Tab", () => {
+    const { host } = mount();
+    const { input } = edit(host, 1, 1);
+    key(input, { key: "Tab", shiftKey: true });
+    const previous = host.querySelector<HTMLElement>('.cm-note-table-cell[data-row="1"][data-col="0"]');
+    expect(previous!.querySelector("input")).not.toBeNull();
+  });
+
+  it("wraps from the end of a row to the start of the next", () => {
+    const { host } = mount();
+    const { input } = edit(host, 1, 1);
+    key(input, { key: "Tab" });
+    const next = host.querySelector<HTMLElement>('.cm-note-table-cell[data-row="2"][data-col="0"]');
+    expect(next!.querySelector("input")).not.toBeNull();
+  });
+
+  it("moves down a row on Enter", () => {
+    const { host } = mount();
+    const { input } = edit(host, 1, 0);
+    key(input, { key: "Enter" });
+    const below = host.querySelector<HTMLElement>('.cm-note-table-cell[data-row="2"][data-col="0"]');
+    expect(below!.querySelector("input")).not.toBeNull();
+  });
+
+  it("adds a row when Enter is pressed on the last one", () => {
+    const { host, view } = mount();
+    const { input } = edit(host, 2, 0);
+    key(input, { key: "Enter" });
+    expect(view.state.doc.toString()).toContain("| $e$ | Euler |\n|  |  |");
+  });
+
+  it("does not let Enter put a newline in the document", () => {
+    const { host, view } = mount();
+    const before = view.state.doc.lines;
+    const { input } = edit(host, 1, 0);
+    key(input, { key: "Enter" });
+    // One new line at most, and only because a row was appended -- never a line
+    // break inside a row, which would end the table.
+    expect(view.state.doc.lines).toBe(before);
+  });
+
+  it("leaves the grid on Escape and puts the cursor after the table", () => {
+    const { host, view } = mount();
+    const { input } = edit(host, 1, 0);
+    key(input, { key: "Escape" });
     const head = view.state.selection.main.head;
-    expect(view.state.doc.sliceString(head, head + 5)).toBe("Euler");
+    expect(head).toBeGreaterThan(doc.indexOf("| $e$ | Euler |"));
+  });
+});
+
+describe("the cursor treats the table as one unit", () => {
+  it("does not leave the document cursor inside hidden markdown", () => {
+    const { view } = mount();
+    // An atomic range means motion steps over the whole table rather than into
+    // text that is never displayed.
+    const ranges = view.state.facet(EditorView.atomicRanges);
+    expect(ranges.length).toBeGreaterThan(0);
   });
 });

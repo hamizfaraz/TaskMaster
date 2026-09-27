@@ -18,11 +18,15 @@ from a block document.
 - `extensions/live-preview.ts` — Obsidian-style live preview: hides syntax
   and renders bullets, checkboxes, rules, images and `==highlight==` on lines
   the cursor is not on.
-- `extensions/table-widgets.ts` — StateField that renders GFM tables as a grid
-  with row/column/alignment controls. Structural edits rewrite the whole table
-  region in one transaction; clicking a cell moves the cursor into that cell's
-  markdown rather than editing in place. The edits themselves are pure functions
-  in `lib/notes/table-edit.ts`.
+- `extensions/table-widgets.ts` — StateField that renders GFM tables as an
+  editable grid with row/column/alignment controls. The markdown is never shown
+  in preview; Source mode is the only way to see it, and the range is atomic so
+  the cursor steps over it. Clicking a cell swaps its rendering for an `<input>`
+  holding that cell's raw markdown; typing writes only that cell's span of the
+  document, while structural edits rewrite the whole region. The edits themselves
+  are pure functions in `lib/notes/table-edit.ts`.
+- `extensions/katex-render.ts` — cached `katex.renderToString`, shared by the
+  math and table widgets.
 - `extensions/math-widgets.ts` — StateField that renders math regions with
   KaTeX, or with a MathLive field for the region being edited; `Mod-e` and
   clicking a formula open it.

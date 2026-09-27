@@ -201,6 +201,42 @@ export function cycleAlignment(model: TableModel, index: number): TableModel {
 }
 
 /**
+ * Escape a cell's text for the markdown table.
+ *
+ * Must match `serializeTableCell` in `lib/notes/markdown.ts`: a raw `|` would
+ * split the cell into two, and a newline would end the row. Kept here as well so
+ * in-place cell edits escape identically to a full re-serialization.
+ */
+export function escapeCellText(value: string) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+/**
+ * The span of a cell's text inside its source line, excluding the padding spaces
+ * the serializer writes around it.
+ *
+ * This is what makes typing in a cell a small edit rather than a rewrite of the
+ * whole table: only the cell's own characters are replaced, so the history keeps
+ * coalescing keystrokes and the rest of the row is untouched.
+ */
+export function cellRangeInLine(line: string, columnIndex: number): { from: number; to: number } {
+  const start = cellOffsetInLine(line, columnIndex);
+  let index = start;
+  while (index < line.length) {
+    if (line[index] === "\\" && line[index + 1] === "|") {
+      index += 2;
+      continue;
+    }
+    if (line[index] === "|") break;
+    index += 1;
+  }
+  // Trim the padding space before the closing pipe.
+  let end = index;
+  while (end > start && line[end - 1] === " ") end -= 1;
+  return { from: start, to: Math.max(start, end) };
+}
+
+/**
  * Offset of a cell's text within its source line, for putting the cursor where
  * the user clicked. Returns the line length when the column runs past the row's
  * cells, which puts the cursor at the end rather than nowhere.
