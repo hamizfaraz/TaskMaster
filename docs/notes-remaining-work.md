@@ -66,7 +66,7 @@ embedding vectors already trimmed, and larger.
 |---|---|---|
 | No read-only note view | Small | `LatexMarkdown` already renders notes correctly, including highlights. Needs a route and a print stylesheet. |
 | Mermaid is a dead end | Small either way | The generator is still told to emit diagram fences and nothing renders them. **Needs a decision**: restore the ~34-line renderer plus the dependency, or delete the instruction and the block type. No note is affected yet. |
-| Tables render as monospace pipes, not a grid | Medium | A CodeMirror widget, in the same shape as the math widgets. |
+| ~~Tables render as monospace pipes~~ | **done** | A block widget in the same shape as the math widgets, with row, column and alignment controls. Edits are pure functions in `lib/notes/table-edit.ts`, serialized through the existing table serializer so round-trip stays byte-identical. |
 | Block drag-to-reorder | **Large** | About 570 lines were deleted. **Needs a decision**: is this wanted in a Markdown-native editor, where `Alt+↑/↓` already moves lines? |
 
 ## 5. Filed and genuinely outstanding
@@ -114,8 +114,8 @@ Not closed here, because re-scoping them is the owner's call.
 3. **Trash and restore.** Removes the only irreversible action in the feature.
 4. **Read-only view**, which also gives print, and settles the mermaid question.
 5. **#86 images**, then the larger retrieval work in #57 and #87.
-6. Tables as a grid, and the drag-reorder decision, last: both are polish
-   against a Markdown editor that already works.
+6. The drag-reorder decision, last: polish against a Markdown editor that
+   already works. (Tables as a grid is done.)
 
 ## 8. Decisions needed
 

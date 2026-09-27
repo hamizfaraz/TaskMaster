@@ -24,7 +24,7 @@ issues, commits, and tests. Priority is **Must** unless stated otherwise.
 | NE-1 | All note text is **Markdown + LaTeX**. No proprietary rich-text format. | Must | Implies Markdown is the canonical representation — see Q1. |
 | NE-2 | LaTeX is embedded in the Markdown **exactly as the note generator emits it**: `$…$` inline, `$$` on its own lines for display. | Must | Format pinned in detail below. |
 | NE-3 | The editor works **seamlessly with generator output**: a generated note opens, edits, and saves with no lossy transform in either direction. | Must | Round-trip must be lossless. One known defect today — see detail. |
-| NE-4 | While typing, the user can **insert a block of any Markdown type**. | Must | Full list in detail. Tables are a gap today. |
+| NE-4 | While typing, the user can **insert a block of any Markdown type**. | Must | Full list in detail. |
 | NE-5 | While typing, the user can **insert a math block**, choosing **inline** or **display ("large")**. | Must | Maps directly onto the data layer's `inlineMath` / `math` block types. |
 | NE-6 | Take **direct inspiration from Obsidian**. | Must | Markdown-native typing, live preview, `$`/`$$` math syntax. See Q4 on modes. |
 | NE-7 | A math block gets a **Desmos / Mathway-style structural input**: the user types characters naturally *or* edits the LaTeX directly, and the two stay in sync. | Must | `lib/math/latex.ts` already normalizes typed math → LaTeX. See detail. |
@@ -96,7 +96,7 @@ the rewrite prompt), so all of these must be insertable and editable:
 | Inline math `$…$` | `inlineMath` | ✓ spacing defect — NE-3 |
 | Display math `$$` | `math` | ✓ |
 | Mermaid fenced block | `mermaid` | schema only; renderer removed — Q6 |
-| **Table** | **none** | **gap** — Q3 |
+| **Table** | **grid widget with row/column controls** | done |
 
 The generator prompt says *"Convert all parsed tables into Markdown tables"*,
 but `parse-markdown.ts` has no table detection and the schema has no table
@@ -198,7 +198,6 @@ least match, plus what NE-1–NE-8 add:
 
 - MathLive was exercised in jsdom through a stub element; focus handling in
   real browsers (Safari especially) still needs the manual pass above.
-- Tables render as monospace source in live preview, not as a grid widget.
 - Mermaid is no longer generated. The renderer went with the old editor, and
   rather than re-adding a large dependency for a feature no note used, the
   generator instruction was removed. The `mermaid` block type stays so a note

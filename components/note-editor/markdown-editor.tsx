@@ -17,6 +17,7 @@ import {
 import { imageDrop, type ImageUploader } from "@/components/note-editor/extensions/image-drop";
 import { livePreview } from "@/components/note-editor/extensions/live-preview";
 import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
+import { tableWidgets } from "@/components/note-editor/extensions/table-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
 import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
 import { inlineFormatKeymap } from "@/components/note-editor/extensions/inline-format";
@@ -28,7 +29,10 @@ import {
 } from "@/components/note-editor/extensions/highlight-suggestions";
 
 function previewExtensions(sourceMode: boolean) {
-  return sourceMode ? [] : [livePreview(), mathWidgets()];
+  // Table widgets come after live preview: both touch table lines, and the
+  // block-level replace wins over the per-line monospace class, which is what
+  // should happen when the table is rendered as a grid.
+  return sourceMode ? [] : [livePreview(), mathWidgets(), tableWidgets()];
 }
 
 /** What React-side controls (the "+ Block" button) may ask the editor to do. */
