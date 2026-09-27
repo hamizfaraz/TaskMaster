@@ -2,7 +2,21 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
 
-const AZURE_DOCUMENT_INTELLIGENCE_API_VERSION = "2024-11-30";
+// Gemini's image input formats, plus PDF. Azure also accepted GIF; Gemini does
+// not, so the upload route's allowlist dropped it and gained HEIC/HEIF, which
+// is what phone cameras actually produce.
+export const OCR_SUPPORTED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+// Inline bytes are base64-encoded, inflating by 4/3 against Gemini's 20 MB
+// total request limit. The upload route caps files at 10 MB, so this is a guard
+// against that cap being raised without the Files API being adopted first.
+export const MAX_INLINE_DOCUMENT_BYTES = 14 * 1024 * 1024;
 const EMBEDDING_DIMENSIONS = 768;
 const MAX_GENERATED_TOPIC_NOTES = 4;
 const TARGET_MARKDOWN_CHARS_PER_TOPIC_NOTE = 4500;
@@ -52,83 +66,73 @@ function parseJsonPayload(value: string) {
   return JSON.parse(fencedMatch?.[1] ?? trimmed) as unknown;
 }
 
-function normalizeAzureEndpoint(value: string) {
-  return value.replace(/\/+$/, "");
-}
+/**
+ * Transcribe an uploaded document with Gemini.
+ *
+ * This replaced Azure Document Intelligence, which billed $1.50 per 1,000 pages
+ * against roughly $0.0000258 per page here — Azure was 91% of an upload's cost.
+ *
+ * Extraction stays a separate call from the Markdown rewrite that follows it,
+ * even though one call could do both. Azure's real value was that it could only
+ * ever report characters it had actually seen, which gave the rewrite step a
+ * factual floor. A generative model has no such floor, so the floor has to come
+ * from the instructions: this prompt forbids interpretation and requires
+ * illegible regions to be marked rather than guessed. Treat this as
+ * transcription; all restructuring belongs to rewriteParsedTextAsMarkdown.
+ */
+export async function extractDocumentText(
+  fileBuffer: Buffer,
+  mimeType: string,
+  fileName: string,
+) {
+  if (!OCR_SUPPORTED_MIME_TYPES.has(mimeType)) {
+    throw new Error(`Gemini cannot read ${mimeType}.`);
+  }
 
-async function wait(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
+  if (fileBuffer.byteLength > MAX_INLINE_DOCUMENT_BYTES) {
+    throw new Error("The file is too large to send to Gemini inline.");
+  }
 
-export async function analyzeDocumentWithAzure(fileBuffer: Buffer, mimeType: string) {
-  const endpoint = normalizeAzureEndpoint(getRequiredEnv("AZURE_ENDPOINT", "AZURE_ENDPOINT"));
-  const key = getRequiredEnv("AZURE_KEY");
-  const model = encodeURIComponent(getRequiredEnv("AZURE_MODEL"));
-  const analyzeUrl = `${endpoint}/documentintelligence/documentModels/${model}:analyze?_overload=analyzeDocument&api-version=${AZURE_DOCUMENT_INTELLIGENCE_API_VERSION}`;
-
-  const analyzeResponse = await fetch(analyzeUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Ocp-Apim-Subscription-Key": key,
+  const ai = getGoogleAiClient();
+  const response = await ai.models.generateContent({
+    model: getRequiredEnv("GEMINI_OCR_MODEL", "GEMINI_PARSE_MODEL"),
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: [
+              "Transcribe this document exactly as it appears. This is an optical character recognition task, not a writing task.",
+              "Copy every word, number, and symbol in natural reading order. On a multi-column page, finish one column before starting the next.",
+              "Do not summarize, explain, answer, correct, or comment on the content. Do not add headings, transitions, or any text that is not in the document.",
+              "Write mathematics as LaTeX: $...$ inline and $$...$$ when displayed. Transcribe the symbols you see; do not solve, simplify, or rearrange them.",
+              "Keep tables as rows and columns, lists as lists, and code verbatim including its indentation.",
+              "Where the document is genuinely illegible, write [illegible] rather than guessing. An honest gap is more useful than an invented word.",
+              "Record figures and diagrams as [figure: labels visible in the figure]. Do not interpret what they mean.",
+              "Return the transcription as plain text, with no commentary and no code fence wrapping the whole response.",
+              `File name: ${fileName}`,
+            ].join("\n\n"),
+          },
+          {
+            inlineData: {
+              mimeType,
+              data: fileBuffer.toString("base64"),
+            },
+          },
+        ],
+      },
+    ],
+    config: {
+      temperature: 0,
     },
-    body: JSON.stringify({
-      base64Source: fileBuffer.toString("base64"),
-    }),
   });
 
-  if (!analyzeResponse.ok) {
-    const details = await analyzeResponse.text().catch(() => "");
-    throw new Error(`Azure Document Intelligence rejected the file (${analyzeResponse.status}). ${details}`);
+  const parsedText = response.text?.trim();
+  if (!parsedText) {
+    throw new Error(`Gemini read ${fileName} but returned no text content.`);
   }
 
-  const operationLocation = analyzeResponse.headers.get("operation-location");
-  if (!operationLocation) {
-    throw new Error("Azure Document Intelligence did not return an operation-location header.");
-  }
-
-  const retryAfter = Number(analyzeResponse.headers.get("retry-after") ?? 1);
-  const pollDelayMs = Number.isFinite(retryAfter) ? Math.max(1000, retryAfter * 1000) : 1000;
-
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    await wait(pollDelayMs);
-
-    const pollResponse = await fetch(operationLocation, {
-      headers: {
-        "Ocp-Apim-Subscription-Key": key,
-      },
-    });
-
-    if (!pollResponse.ok) {
-      const details = await pollResponse.text().catch(() => "");
-      throw new Error(`Azure Document Intelligence polling failed (${pollResponse.status}). ${details}`);
-    }
-
-    const payload = (await pollResponse.json()) as {
-      status?: string;
-      analyzeResult?: {
-        content?: string;
-      };
-      error?: {
-        message?: string;
-      };
-    };
-
-    if (payload.status === "succeeded") {
-      const parsedText = payload.analyzeResult?.content?.trim();
-      if (!parsedText) {
-        throw new Error(`Azure Document Intelligence parsed ${mimeType} but returned no text content.`);
-      }
-
-      return parsedText;
-    }
-
-    if (payload.status === "failed") {
-      throw new Error(payload.error?.message || "Azure Document Intelligence failed to analyze the file.");
-    }
-  }
-
-  throw new Error("Azure Document Intelligence timed out before returning parsed text.");
+  return parsedText;
 }
 
 export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: string) {
@@ -371,7 +375,11 @@ export async function generateTopicNotesFromFile(params: {
   fileName: string;
   mimeType: string;
 }) {
-  const parsedText = await analyzeDocumentWithAzure(params.fileBuffer, params.mimeType);
+  const parsedText = await extractDocumentText(
+    params.fileBuffer,
+    params.mimeType,
+    params.fileName,
+  );
   const markdown = await rewriteParsedTextAsMarkdown(parsedText, params.fileName);
   const topics = await splitMarkdownIntoTopics(markdown);
   const embeddedTopics = await embedGeneratedTopics(topics);

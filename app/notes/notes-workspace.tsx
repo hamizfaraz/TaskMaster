@@ -1193,7 +1193,7 @@ export function NotesWorkspace({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,image/png,image/jpeg,image/webp,image/gif"
+        accept=".pdf,image/png,image/jpeg,image/webp,image/heic,image/heif"
         className="hidden"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];

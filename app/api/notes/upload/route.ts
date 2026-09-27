@@ -7,15 +7,20 @@ import { generateTopicNotesFromFile, markdownToNoteDocument } from "@/lib/notes/
 import { rateLimitMessage } from "@/lib/provider-errors";
 
 export const runtime = "nodejs";
-// Azure polls for up to ~60s and two Gemini calls follow it. Without this the
-// platform default can kill the handler *after* all the paid work is done.
+// Three sequential Gemini calls, the first of which transcribes a whole
+// document. Without this the platform default can kill the handler *after* all
+// the paid work is done.
 export const maxDuration = 300;
 
+// Must stay a subset of OCR_SUPPORTED_MIME_TYPES in lib/notes/generation.ts.
+// GIF was dropped when OCR moved to Gemini, which does not accept it; HEIC and
+// HEIF were added because that is what phone cameras produce.
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
-  "image/gif",
+  "image/heic",
+  "image/heif",
   "application/pdf",
 ]);
 
@@ -109,8 +114,8 @@ export async function POST(req: Request) {
       mimeType: file.type,
     });
   } catch (error) {
-    // Never surface the raw message: it carries Zod issue JSON, Azure response
-    // bodies, and environment-variable names.
+    // Never surface the raw message: it carries Zod issue JSON, provider
+    // response bodies, and environment-variable names.
     console.error("[POST /api/notes/upload] generation failed", error);
     // A rate-limited provider is not a bad file. Saying so sends people off
     // retrying with different documents, which can never work.
@@ -124,9 +129,8 @@ export async function POST(req: Request) {
     );
   }
 
-  // A DB failure here would silently discard 30-90s of paid Azure + Gemini
-  // work, so it is guarded and reported rather than falling through to a
-  // generic 500.
+  // A DB failure here would silently discard 30-90s of paid Gemini work, so it
+  // is guarded and reported rather than falling through to a generic 500.
   const insertNotes = () =>
     db
       .insert(note)
