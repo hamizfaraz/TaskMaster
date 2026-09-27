@@ -4,6 +4,7 @@ import {
   MAX_NOTE_MARKDOWN_CHARS,
 } from "@/lib/notes/limits";
 import { normalizeMarkdownMath } from "@/lib/notes/math-ranges";
+import { sanitizeStoredText } from "@/lib/notes/sanitize";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { emptyNoteDocument, NoteDocumentSchema, type NoteDocument } from "@/lib/notes/types";
 
@@ -47,7 +48,7 @@ export function normalizeNoteWriteMarkdown(value: unknown): NormalizedNoteWriteC
     );
   }
 
-  const markdown = normalizeMarkdownMath(value.replace(/\r\n?/g, "\n"));
+  const markdown = normalizeMarkdownMath(sanitizeStoredText(value).replace(/\r\n?/g, "\n"));
 
   return {
     document: parseMarkdownToNoteDocument(markdown),

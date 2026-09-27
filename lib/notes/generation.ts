@@ -2,6 +2,7 @@ import { FinishReason, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { MAX_INLINE_DOCUMENT_BYTES } from "@/lib/notes/limits";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
+import { sanitizeStoredText } from "@/lib/notes/sanitize";
 
 // Gemini's image input formats, plus PDF. Azure also accepted GIF; Gemini does
 // not, so the upload route's allowlist dropped it and gained HEIC/HEIF, which
@@ -133,7 +134,7 @@ export async function extractDocumentText(
     );
   }
 
-  const parsedText = response.text?.trim();
+  const parsedText = sanitizeStoredText(response.text ?? "").trim();
   if (!parsedText) {
     throw new Error(`Gemini read ${fileName} but returned no text content.`);
   }
@@ -189,7 +190,9 @@ export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: 
     throw new Error("Gemini returned an empty Markdown rewrite.");
   }
 
-  return markdownNoteSchema.parse(parseJsonPayload(response.text)).markdown.trim();
+  return sanitizeStoredText(
+    markdownNoteSchema.parse(parseJsonPayload(response.text)).markdown,
+  ).trim();
 }
 
 export async function splitMarkdownIntoTopics(markdown: string) {
@@ -246,8 +249,8 @@ export async function splitMarkdownIntoTopics(markdown: string) {
   }
 
   const topics = topicsSchema.parse(parseJsonPayload(response.text)).topics.map((topic) => ({
-    title: topic.title.trim() || "Generated Topic",
-    markdown: topic.markdown.trim(),
+    title: sanitizeStoredText(topic.title).trim() || "Generated Topic",
+    markdown: sanitizeStoredText(topic.markdown).trim(),
   }));
 
   return rebalanceGeneratedTopics(topics);
