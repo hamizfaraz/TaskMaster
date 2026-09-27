@@ -1,6 +1,13 @@
 import { type EditorState, StateField, Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { renderKatexHtml } from "@/components/note-editor/extensions/katex-render";
+import {
+  createLatexSourceUi,
+  createMathFieldElement,
+  focusMathField,
+} from "@/components/note-editor/extensions/math-field-ui";
+import { loadMathLive } from "@/components/note-editor/extensions/mathlive-loader";
+import { findMathRanges } from "@/lib/notes/math-ranges";
 import { decodeHtmlAttribute, INLINE_MATH_SPAN_RE } from "@/lib/notes/markdown";
 import { renderInlineMarkdownText } from "@/lib/notes/parse-markdown";
 import {
@@ -144,10 +151,15 @@ function applyTableEdit(view: EditorView, wrapper: HTMLElement, edit: TableEdit)
  */
 function renderCellHtml(cell: string): string {
   INLINE_MATH_SPAN_RE.lastIndex = 0;
+  let index = 0;
   return renderInlineMarkdownText(cell).replace(
     INLINE_MATH_SPAN_RE,
     (_match, latex: string) =>
-      `<span class="cm-note-table-math">${renderKatexHtml(decodeHtmlAttribute(latex), false)}</span>`,
+      // The index is how a click identifies which formula it hit. Ordinal rather
+      // than offset on purpose: the cell's displayed text has its `\|` escapes
+      // resolved, so offsets into it do not match the document, but the order and
+      // number of formulas are the same either way.
+      `<span class="cm-note-table-math" data-math-index="${index++}" role="button" title="Edit formula">${renderKatexHtml(decodeHtmlAttribute(latex), false)}</span>`,
   );
 }
 
@@ -161,6 +173,25 @@ function showRendered(cell: HTMLElement) {
   }
   cell.classList.remove("cm-note-table-cell-empty");
   cell.innerHTML = renderCellHtml(raw);
+}
+
+/**
+ * Build a cell.
+ *
+ * Always a `<span>` inside the `<th>`/`<td>`, never the `<th>`/`<td>` itself. The
+ * cell needs `display: block` to give an empty cell a clickable height, and
+ * setting that on a table cell takes it out of the table's formatting context —
+ * which collapsed every column into a single stack down the left.
+ */
+function makeCell(rowIndex: number, columnIndex: number, raw: string, alignment: string) {
+  const cell = document.createElement("span");
+  cell.className = "cm-note-table-cell";
+  cell.dataset.row = String(rowIndex);
+  cell.dataset.col = String(columnIndex);
+  cell.dataset.raw = raw;
+  cell.style.textAlign = alignment;
+  showRendered(cell);
+  return cell;
 }
 
 const CELL_SELECTOR = ".cm-note-table-cell";
@@ -222,6 +253,9 @@ class TableWidget extends WidgetType {
         if (input.value !== raw) input.value = raw;
         continue;
       }
+      // An open MathLive field is writing to the document as the user types in
+      // it; re-rendering the cell would tear the field out mid-edit.
+      if (cell.querySelector(".cm-note-mathfield")) continue;
       showRendered(cell);
     }
     return true;
@@ -279,6 +313,22 @@ class TableWidget extends WidgetType {
       });
 
       input.addEventListener("keydown", (event) => {
+        // Mod-e opens the formula under the caret, the same shortcut that opens a
+        // formula anywhere else in the note. Resolved to an ordinal so it matches
+        // the document even when the cell contains an escaped pipe.
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
+          const caret = input.selectionStart ?? input.value.length;
+          const index = findMathRanges(input.value).findIndex(
+            (range) => range.from <= caret && caret <= range.to,
+          );
+          if (index !== -1) {
+            event.preventDefault();
+            event.stopPropagation();
+            input.remove();
+            openCellMath(cell, index);
+            return;
+          }
+        }
         // The grid is the keyboard context while a cell is open, so navigation
         // keys must not reach CodeMirror and move the document cursor instead.
         if (event.key === "Escape") {
@@ -344,6 +394,147 @@ class TableWidget extends WidgetType {
       if (next) beginEdit(next);
     };
 
+    /**
+     * Open the `mathIndex`-th formula in a cell with MathLive.
+     *
+     * The same element, attributes and "LaTeX" toggle as a formula outside a
+     * table, so the keyboard behaves identically — Backspace removes a fraction
+     * as a unit, and no virtual keyboard appears. The formula's own `$…$` span of
+     * the document is what gets written, so the surrounding cell text is
+     * untouched.
+     *
+     * This cannot go through the `mathSessionField` that serves the rest of the
+     * note: that renders its field as its own replace decoration, and this region
+     * is already covered by the table's block decoration. Two replace decorations
+     * over the same range cannot both apply, so the table hosts the field itself.
+     */
+    const openCellMath = (cell: HTMLElement, mathIndex: number) => {
+      const rowIndex = Number(cell.dataset.row);
+      const columnIndex = Number(cell.dataset.col);
+
+      const locate = () => {
+        const range = tableRangeOf(view, wrapper);
+        if (!range) return null;
+        const span = cellSpan(view, range, rowIndex, columnIndex);
+        if (!span) return null;
+        const source = view.state.doc.sliceString(span.from, span.to);
+        const math = findMathRanges(source)[mathIndex];
+        if (!math) return null;
+        // Inside the delimiters: `$…$` is one character each side.
+        return { from: span.from + math.from + 1, to: span.from + math.to - 1 };
+      };
+
+      const initial = locate();
+      if (!initial) return;
+      const latex = view.state.doc.sliceString(initial.from, initial.to);
+
+      void loadMathLive()
+        .then(() => {
+          if (!cell.isConnected) return;
+
+          const host = document.createElement("span");
+          host.className = "cm-note-mathfield";
+          host.contentEditable = "false";
+
+          const field = createMathFieldElement(latex, false);
+          const { toggle, source } = createLatexSourceUi(latex, 1);
+          host.append(field, toggle, source);
+
+          const write = (value: string) => {
+            const at = locate();
+            if (!at) return;
+            if (view.state.doc.sliceString(at.from, at.to) === value) return;
+            view.dispatch({
+              changes: { from: at.from, to: at.to, insert: value },
+              annotations: Transaction.userEvent.of("input.type"),
+              scrollIntoView: false,
+            });
+          };
+
+          const close = () => {
+            host.remove();
+            showRendered(cell);
+          };
+
+          field.addEventListener("input", () => write(field.value));
+          field.addEventListener("focusout", () => {
+            // A focus move inside the assembly (to the LaTeX textarea) is not an
+            // exit; only leaving the whole thing closes it.
+            window.setTimeout(() => {
+              if (!host.contains(document.activeElement)) close();
+            }, 0);
+          });
+          field.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            if (event.key === "Escape" || event.key === "Enter") {
+              event.preventDefault();
+              close();
+              const again = cellAt(wrapper, rowIndex, columnIndex);
+              if (again) beginEdit(again);
+            }
+          });
+
+          toggle.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const show = source.hidden;
+            source.hidden = !show;
+            toggle.setAttribute("aria-pressed", show ? "true" : "false");
+            if (show) {
+              source.value = field.value;
+              source.focus();
+            } else {
+              focusMathField(field);
+            }
+          });
+          source.addEventListener("input", () => {
+            field.setValue(source.value, { silenceNotifications: true });
+            write(source.value);
+          });
+          source.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              event.preventDefault();
+              close();
+            }
+          });
+
+          cell.textContent = "";
+          cell.appendChild(host);
+          focusMathField(field);
+        })
+        .catch(() => {
+          // MathLive did not load; the cell stays as it was and the text input
+          // remains the way to edit the formula.
+        });
+    };
+
+    /**
+     * One delegated listener rather than a handler per cell.
+     *
+     * Cells are re-rendered whenever the document changes, so per-element
+     * listeners would have to be re-attached every time; delegation on the
+     * wrapper cannot go stale. A click on a formula opens MathLive, a click
+     * anywhere else in a cell opens the text input.
+     */
+    wrapper.addEventListener("mousedown", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || target.closest(".cm-note-mathfield") || target.closest("button")) return;
+
+      const cell = target.closest<HTMLElement>(CELL_SELECTOR);
+      if (!cell || !wrapper.contains(cell)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const formula = target.closest<HTMLElement>(".cm-note-table-math");
+      if (formula) {
+        openCellMath(cell, Number(formula.dataset.mathIndex ?? "0"));
+        return;
+      }
+      beginEdit(cell);
+    });
+
     // -- header -----------------------------------------------------------
 
     const table = document.createElement("table");
@@ -356,19 +547,7 @@ class TableWidget extends WidgetType {
     model.rows[0]?.forEach((raw, columnIndex) => {
       const th = document.createElement("th");
 
-      const cell = document.createElement("span");
-      cell.className = "cm-note-table-cell";
-      cell.dataset.row = "0";
-      cell.dataset.col = String(columnIndex);
-      cell.dataset.raw = raw;
-      cell.style.textAlign = model.align[columnIndex] ?? "left";
-      showRendered(cell);
-      cell.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        beginEdit(cell);
-      });
-      th.appendChild(cell);
+      th.appendChild(makeCell(0, columnIndex, raw, model.align[columnIndex] ?? "left"));
 
       const tools = document.createElement("span");
       tools.className = "cm-note-table-tools";
@@ -421,18 +600,7 @@ class TableWidget extends WidgetType {
 
       row.forEach((raw, columnIndex) => {
         const td = document.createElement("td");
-        const cell = td;
-        cell.className = "cm-note-table-cell";
-        cell.dataset.row = String(rowIndex);
-        cell.dataset.col = String(columnIndex);
-        cell.dataset.raw = raw;
-        cell.style.textAlign = model.align[columnIndex] ?? "left";
-        showRendered(cell);
-        cell.addEventListener("mousedown", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          beginEdit(cell);
-        });
+        td.appendChild(makeCell(rowIndex, columnIndex, raw, model.align[columnIndex] ?? "left"));
         tr.appendChild(td);
       });
       body.appendChild(tr);
@@ -589,6 +757,13 @@ const tableTheme = EditorView.baseTheme({
     outline: "none",
     background: "transparent",
     textAlign: "inherit",
+  },
+  ".cm-note-table-math": {
+    cursor: "pointer",
+    borderRadius: "3px",
+  },
+  ".cm-note-table-math:hover": {
+    backgroundColor: "color-mix(in srgb, var(--accent) 10%, transparent)",
   },
   ".cm-note-table-math .katex": {
     fontSize: "1em",

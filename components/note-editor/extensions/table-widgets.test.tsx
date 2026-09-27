@@ -45,10 +45,10 @@ describe("table grid rendering", () => {
   it("renders LaTeX in a cell with KaTeX, not as literal dollar signs", () => {
     // The first version set textContent, so `$\pi$` showed verbatim.
     const { host } = mount();
-    const cell = [...host.querySelectorAll("tbody td.cm-note-table-cell")].find((td) =>
+    const cell = [...host.querySelectorAll("tbody .cm-note-table-cell")].find((td) =>
       (td.textContent ?? "").includes("circle ratio"),
     );
-    const mathCell = host.querySelector("tbody tr:first-child td.cm-note-table-cell");
+    const mathCell = host.querySelector("tbody tr:first-child .cm-note-table-cell");
     expect(cell).toBeDefined();
     expect(mathCell!.querySelector(".katex")).not.toBeNull();
     expect(mathCell!.textContent).not.toContain("$");
@@ -79,7 +79,7 @@ describe("table grid rendering", () => {
 
   it("shows an escaped pipe as a pipe, not as a cell boundary", () => {
     const { host } = mount();
-    const cells = [...host.querySelectorAll("tbody tr:first-child td.cm-note-table-cell")];
+    const cells = [...host.querySelectorAll("tbody tr:first-child .cm-note-table-cell")];
     // Two data cells, and the escape is content in the second.
     expect(cells).toHaveLength(2);
   });
@@ -102,8 +102,24 @@ describe("table grid rendering", () => {
 
   it("carries the column alignment from the delimiter row", () => {
     const { host } = mount();
-    const cells = host.querySelectorAll<HTMLElement>("tbody tr:first-child td:not(.cm-note-table-gutter)");
+    const cells = host.querySelectorAll<HTMLElement>("tbody tr:first-child .cm-note-table-cell");
     expect(cells[1]!.style.textAlign).toBe("center");
+  });
+
+  it("keeps every column in the table's own layout", () => {
+    // Regression: the editable cell needs display:block so an empty cell still
+    // has a clickable height. Putting that class on the <td> itself took the cell
+    // out of the table formatting context and stacked every column down the left.
+    const { host } = mount();
+    const tds = [...host.querySelectorAll("tbody td:not(.cm-note-table-gutter)")];
+    expect(tds).toHaveLength(4);
+    for (const td of tds) {
+      expect(td.classList.contains("cm-note-table-cell")).toBe(false);
+      expect(td.querySelector(".cm-note-table-cell")).not.toBeNull();
+    }
+    expect(
+      host.querySelectorAll("tbody tr:first-child td:not(.cm-note-table-gutter)"),
+    ).toHaveLength(2);
   });
 
   it("does not render a table inside a fenced code block", () => {

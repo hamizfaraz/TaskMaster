@@ -23,10 +23,17 @@ from a block document.
   in preview; Source mode is the only way to see it, and the range is atomic so
   the cursor steps over it. Clicking a cell swaps its rendering for an `<input>`
   holding that cell's raw markdown; typing writes only that cell's span of the
-  document, while structural edits rewrite the whole region. The edits themselves
-  are pure functions in `lib/notes/table-edit.ts`.
+  document, while structural edits rewrite the whole region. Clicking a formula in
+  a cell opens MathLive for that formula alone, with the same keyboard and LaTeX
+  toggle as elsewhere (`Mod-e` works from inside a cell too); the table hosts the
+  field itself, because its block decoration already covers the region the shared
+  `mathSessionField` would decorate. The edits themselves are pure functions in
+  `lib/notes/table-edit.ts`.
 - `extensions/katex-render.ts` — cached `katex.renderToString`, shared by the
   math and table widgets.
+- `extensions/math-field-ui.ts` — the `<math-field>` attributes, the guarded
+  focus, and the "LaTeX" toggle/textarea pair, shared so a formula edits the same
+  way inside a table cell as in prose.
 - `extensions/math-widgets.ts` — StateField that renders math regions with
   KaTeX, or with a MathLive field for the region being edited; `Mod-e` and
   clicking a formula open it.
