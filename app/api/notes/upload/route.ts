@@ -4,6 +4,7 @@ import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { generateTopicNotesFromFile, markdownToNoteDocument } from "@/lib/notes/generation";
+import { rateLimitMessage } from "@/lib/provider-errors";
 
 export const runtime = "nodejs";
 // Azure polls for up to ~60s and two Gemini calls follow it. Without this the
@@ -111,6 +112,12 @@ export async function POST(req: Request) {
     // Never surface the raw message: it carries Zod issue JSON, Azure response
     // bodies, and environment-variable names.
     console.error("[POST /api/notes/upload] generation failed", error);
+    // A rate-limited provider is not a bad file. Saying so sends people off
+    // retrying with different documents, which can never work.
+    const limited = rateLimitMessage(error);
+    if (limited) {
+      return NextResponse.json({ error: limited }, { status: 429 });
+    }
     return NextResponse.json(
       { error: "Could not generate notes from that file." },
       { status: 502 },

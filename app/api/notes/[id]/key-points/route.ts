@@ -34,6 +34,9 @@ export async function POST(_req: Request, ctx: RouteContext) {
       if (result.reason === "empty") {
         return NextResponse.json({ suggestions: [] });
       }
+      if (result.reason === "rate-limited") {
+        return NextResponse.json({ error: result.message }, { status: 429 });
+      }
       return NextResponse.json(
         { error: "Could not work out the key points for this note." },
         { status: 502 },

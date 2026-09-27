@@ -1,6 +1,7 @@
 import { google } from "@ai-sdk/google";
 import { stepCountIs, tool, ToolLoopAgent } from "ai";
 import { z } from "zod";
+import { rateLimitMessage } from "@/lib/provider-errors";
 import {
   getOwnedNote,
   getRankerCandidates,
@@ -189,7 +190,7 @@ function parseProposalFromText(text: string): Proposal | null {
 
 export type KeyPointAgentResult =
   | { ok: true; suggestions: AgentSuggestion[] }
-  | { ok: false; reason: "not-found" | "empty" | "failed" };
+  | { ok: false; reason: "not-found" | "empty" | "failed" | "rate-limited"; message?: string };
 
 /**
  * Run the agent over one note the user owns.
@@ -293,6 +294,10 @@ export async function runKeyPointAgent(params: {
     finalText.value = result.text;
   } catch (error) {
     console.error("[suggestKeyPoints]", error);
+    const limited = rateLimitMessage(error);
+    if (limited) {
+      return { ok: false, reason: "rate-limited", message: limited };
+    }
     return { ok: false, reason: "failed" };
   }
 
