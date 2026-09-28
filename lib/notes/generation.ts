@@ -1,5 +1,9 @@
 import { FinishReason, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import {
+  isRetryableProviderError,
+  retryDelayMs,
+} from "@/lib/provider-errors";
 import { MAX_INLINE_DOCUMENT_BYTES } from "@/lib/notes/limits";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
 import { sanitizeStoredText } from "@/lib/notes/sanitize";
@@ -58,6 +62,42 @@ function getGoogleAiClient() {
   });
 }
 
+/** How many times a single step will try before giving up. */
+const MAX_PROVIDER_ATTEMPTS = 3;
+
+async function wait(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retry one pipeline step through a transient provider failure.
+ *
+ * Wrapped per step rather than around the whole pipeline: a 503 on the topic
+ * split should retry the split, not re-transcribe a document that already
+ * succeeded. Generating notes is three sequential calls, so without this a blip
+ * on the last one throws away the two that were already paid for — which is
+ * exactly what happened while auditing the pipeline, twice in ten minutes.
+ *
+ * An exhausted daily quota is deliberately not retried; it will not clear, so
+ * waiting only delays telling the user something they need to act on.
+ */
+export async function withProviderRetry<T>(step: string, run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt >= MAX_PROVIDER_ATTEMPTS || !isRetryableProviderError(error)) {
+        throw error;
+      }
+      const delay = retryDelayMs(error, attempt);
+      console.warn(
+        `[generation] ${step} failed with a transient provider error; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt} of ${MAX_PROVIDER_ATTEMPTS - 1})`,
+      );
+      await wait(delay);
+    }
+  }
+}
+
 function parseJsonPayload(value: string) {
   const trimmed = value.trim();
   const fencedMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -92,38 +132,40 @@ export async function extractDocumentText(
   }
 
   const ai = getGoogleAiClient();
-  const response = await ai.models.generateContent({
-    model: getRequiredEnv("GEMINI_OCR_MODEL", "GEMINI_PARSE_MODEL"),
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: [
-              "Transcribe this document exactly as it appears. This is an optical character recognition task, not a writing task.",
-              "Copy every word, number, and symbol in natural reading order. On a multi-column page, finish one column before starting the next.",
-              "Do not summarize, explain, answer, correct, or comment on the content. Do not add headings, transitions, or any text that is not in the document.",
-              "Write mathematics as LaTeX: $...$ inline and $$...$$ when displayed. Transcribe the symbols you see; do not solve, simplify, or rearrange them.",
-              "Keep tables as rows and columns, lists as lists, and code verbatim including its indentation.",
-              "Where the document is genuinely illegible, write [illegible] rather than guessing. An honest gap is more useful than an invented word.",
-              "Record figures and diagrams as [figure: labels visible in the figure]. Do not interpret what they mean.",
-              "Return the transcription as plain text, with no commentary and no code fence wrapping the whole response.",
-              `File name: ${fileName}`,
-            ].join("\n\n"),
-          },
-          {
-            inlineData: {
-              mimeType,
-              data: fileBuffer.toString("base64"),
+  const response = await withProviderRetry("transcribe the document", () =>
+    ai.models.generateContent({
+      model: getRequiredEnv("GEMINI_OCR_MODEL", "GEMINI_PARSE_MODEL"),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: [
+                "Transcribe this document exactly as it appears. This is an optical character recognition task, not a writing task.",
+                "Copy every word, number, and symbol in natural reading order. On a multi-column page, finish one column before starting the next.",
+                "Do not summarize, explain, answer, correct, or comment on the content. Do not add headings, transitions, or any text that is not in the document.",
+                "Write mathematics as LaTeX: $...$ inline and $$...$$ when displayed. Transcribe the symbols you see; do not solve, simplify, or rearrange them.",
+                "Keep tables as rows and columns, lists as lists, and code verbatim including its indentation.",
+                "Where the document is genuinely illegible, write [illegible] rather than guessing. An honest gap is more useful than an invented word.",
+                "Record figures and diagrams as [figure: labels visible in the figure]. Do not interpret what they mean.",
+                "Return the transcription as plain text, with no commentary and no code fence wrapping the whole response.",
+                `File name: ${fileName}`,
+              ].join("\n\n"),
             },
-          },
-        ],
+            {
+              inlineData: {
+                mimeType,
+                data: fileBuffer.toString("base64"),
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        temperature: 0,
       },
-    ],
-    config: {
-      temperature: 0,
-    },
-  });
+    }),
+  );
 
   // A document longer than the model's output limit comes back truncated with no
   // error. Accepting it would store half a document as though it were whole, and
@@ -144,47 +186,49 @@ export async function extractDocumentText(
 
 export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: string) {
   const ai = getGoogleAiClient();
-  const response = await ai.models.generateContent({
-    model: getRequiredEnv("GEMINI_PARSE_MODEL"),
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: [
-              "Rewrite the parsed document text into clean Markdown notes.",
-              "Prefer comprehensive class notes over a short summary.",
-              "Do not add new facts, examples, interpretations, dates, names, conclusions, or context.",
-              "Only reorganize, format, and lightly rewrite information that is present in the source text.",
-              "Keep definitions, examples, steps, equations, code, diagrams, table contents, and important caveats when they appear in the source.",
-              "Avoid collapsing several source details into one vague bullet. Dense notes are better than brief notes.",
-              "Preserve uncertainty and omissions. If the source is unclear, keep it unclear.",
-              "Convert all parsed math section into LaTeX math blocks. Do not attempt to interpret or rewrite math expressions.",
-              "Convert all parsed tables into Markdown tables. Do not attempt to interpret or rewrite table contents.",
-              "Convert all parsed lists into Markdown lists. Do not attempt to interpret or rewrite list contents.",
-              "Convert all parsed images into Markdown image links with alt text. Do not attempt to interpret or rewrite image contents.",
-              "Convert all code sections into Markdown code blocks. Do not attempt to interpret or rewrite code contents. Fix indentation and formatting if needed for valid Markdown, but do not change code syntax.",
-              "Return JSON only with this shape: {\"markdown\":\"...\"}.",
-              `File name: ${fileName}`,
-              "Parsed text:",
-              parsedText,
-            ].join("\n\n"),
-          },
-        ],
-      },
-    ],
-    config: {
-      temperature: 0,
-      responseMimeType: "application/json",
-      responseJsonSchema: {
-        type: "object",
-        properties: {
-          markdown: { type: "string" },
+  const response = await withProviderRetry("rewrite as Markdown", () =>
+    ai.models.generateContent({
+      model: getRequiredEnv("GEMINI_PARSE_MODEL"),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: [
+                "Rewrite the parsed document text into clean Markdown notes.",
+                "Prefer comprehensive class notes over a short summary.",
+                "Do not add new facts, examples, interpretations, dates, names, conclusions, or context.",
+                "Only reorganize, format, and lightly rewrite information that is present in the source text.",
+                "Keep definitions, examples, steps, equations, code, diagrams, table contents, and important caveats when they appear in the source.",
+                "Avoid collapsing several source details into one vague bullet. Dense notes are better than brief notes.",
+                "Preserve uncertainty and omissions. If the source is unclear, keep it unclear.",
+                "Convert all parsed math section into LaTeX math blocks. Do not attempt to interpret or rewrite math expressions.",
+                "Convert all parsed tables into Markdown tables. Do not attempt to interpret or rewrite table contents.",
+                "Convert all parsed lists into Markdown lists. Do not attempt to interpret or rewrite list contents.",
+                "Convert all parsed images into Markdown image links with alt text. Do not attempt to interpret or rewrite image contents.",
+                "Convert all code sections into Markdown code blocks. Do not attempt to interpret or rewrite code contents. Fix indentation and formatting if needed for valid Markdown, but do not change code syntax.",
+                "Return JSON only with this shape: {\"markdown\":\"...\"}.",
+                `File name: ${fileName}`,
+                "Parsed text:",
+                parsedText,
+              ].join("\n\n"),
+            },
+          ],
         },
-        required: ["markdown"],
+      ],
+      config: {
+        temperature: 0,
+        responseMimeType: "application/json",
+        responseJsonSchema: {
+          type: "object",
+          properties: {
+            markdown: { type: "string" },
+          },
+          required: ["markdown"],
+        },
       },
-    },
-  });
+    }),
+  );
 
   if (!response.text) {
     throw new Error("Gemini returned an empty Markdown rewrite.");
@@ -197,52 +241,54 @@ export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: 
 
 export async function splitMarkdownIntoTopics(markdown: string) {
   const ai = getGoogleAiClient();
-  const response = await ai.models.generateContent({
-    model: getRequiredEnv("GEMINI_PARSE_MODEL"),
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: [
-              "Split these Markdown notes into large topic sections.",
-              `Return between 1 and ${MAX_GENERATED_TOPIC_NOTES} topics unless the document is extremely large.`,
-              "Prefer fewer, denser topics over many small notes.",
-              "Each topic should usually contain multiple related sections, examples, and details rather than a single slide-sized idea.",
-              "Each topic must contain only text copied or rewritten from the supplied Markdown notes.",
-              "Preserve as much supplied detail as possible inside each topic. Do not make thin summaries.",
-              "Do not introduce new facts. Do not summarize across missing context.",
-              "A topic may be the entire note if the note covers one topic.",
-              "Return JSON only with this shape: {\"topics\":[{\"title\":\"...\",\"markdown\":\"...\"}]}",
-              "Markdown notes:",
-              markdown,
-            ].join("\n\n"),
-          },
-        ],
-      },
-    ],
-    config: {
-      temperature: 0,
-      responseMimeType: "application/json",
-      responseJsonSchema: {
-        type: "object",
-        properties: {
-          topics: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                title: { type: "string" },
-                markdown: { type: "string" },
+  const response = await withProviderRetry("split into topics", () =>
+    ai.models.generateContent({
+      model: getRequiredEnv("GEMINI_PARSE_MODEL"),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: [
+                "Split these Markdown notes into large topic sections.",
+                `Return between 1 and ${MAX_GENERATED_TOPIC_NOTES} topics unless the document is extremely large.`,
+                "Prefer fewer, denser topics over many small notes.",
+                "Each topic should usually contain multiple related sections, examples, and details rather than a single slide-sized idea.",
+                "Each topic must contain only text copied or rewritten from the supplied Markdown notes.",
+                "Preserve as much supplied detail as possible inside each topic. Do not make thin summaries.",
+                "Do not introduce new facts. Do not summarize across missing context.",
+                "A topic may be the entire note if the note covers one topic.",
+                "Return JSON only with this shape: {\"topics\":[{\"title\":\"...\",\"markdown\":\"...\"}]}",
+                "Markdown notes:",
+                markdown,
+              ].join("\n\n"),
+            },
+          ],
+        },
+      ],
+      config: {
+        temperature: 0,
+        responseMimeType: "application/json",
+        responseJsonSchema: {
+          type: "object",
+          properties: {
+            topics: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  markdown: { type: "string" },
+                },
+                required: ["title", "markdown"],
               },
-              required: ["title", "markdown"],
             },
           },
+          required: ["topics"],
         },
-        required: ["topics"],
       },
-    },
-  });
+    }),
+  );
 
   if (!response.text) {
     throw new Error("Gemini returned an empty topic split.");
@@ -350,14 +396,16 @@ function l2Normalize(values: number[]) {
 
 export async function embedGeneratedTopics(topics: Array<{ title: string; markdown: string }>) {
   const ai = getGoogleAiClient();
-  const response = await ai.models.embedContent({
-    model: getRequiredEnv("GEMINI_EMBEDDINGS_MODEL"),
-    contents: topics.map((topic) => `${topic.title}\n\n${topic.markdown}`),
-    config: {
-      outputDimensionality: EMBEDDING_DIMENSIONS,
-      taskType: "RETRIEVAL_DOCUMENT",
-    },
-  });
+  const response = await withProviderRetry("embed topics", () =>
+    ai.models.embedContent({
+      model: getRequiredEnv("GEMINI_EMBEDDINGS_MODEL"),
+      contents: topics.map((topic) => `${topic.title}\n\n${topic.markdown}`),
+      config: {
+        outputDimensionality: EMBEDDING_DIMENSIONS,
+        taskType: "RETRIEVAL_DOCUMENT",
+      },
+    }),
+  );
 
   const embeddings = response.embeddings ?? [];
   if (embeddings.length !== topics.length) {

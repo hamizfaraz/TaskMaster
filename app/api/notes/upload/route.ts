@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
 import { generateTopicNotesFromFile, markdownToNoteDocument } from "@/lib/notes/generation";
 import { MAX_UPLOAD_FILE_BYTES } from "@/lib/notes/limits";
-import { rateLimitMessage } from "@/lib/provider-errors";
+import { providerErrorMessage } from "@/lib/provider-errors";
 
 export const runtime = "nodejs";
 // Three sequential Gemini calls, the first of which transcribes a whole
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
     console.error("[POST /api/notes/upload] generation failed", error);
     // A rate-limited provider is not a bad file. Saying so sends people off
     // retrying with different documents, which can never work.
-    const limited = rateLimitMessage(error);
+    const limited = providerErrorMessage(error);
     if (limited) {
       return NextResponse.json({ error: limited }, { status: 429 });
     }
