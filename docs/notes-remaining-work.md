@@ -73,26 +73,31 @@ embedding vectors already trimmed, and larger.
 
 | Issue | What | Shape |
 |---|---|---|
-| **#88** | Class-page upload with automatic association | Medium |
+| **#88** | Class-page upload with automatic association | **Small** — see below |
 | #86 | Images to blob storage, instead of base64 at a 2 MB cap | Medium |
 | #7 | Multi-topic detection and split suggestions | Medium |
 | #57 | Chunked embeddings and topic retrieval | Large |
 | #87 | Index syllabus and class data for cross-feature retrieval | Large |
 | #8 | Mind map from note content | In PR #61, needs a rebase |
 
-**#88 is the one to pull forward.** Only **9 of 58 notes** carry a `classId`.
-That single number starves the key-point agent's syllabus signal, weakens quiz
-and flashcard context, and blocks anything that wants to reason across a class.
-Fixing the association at upload time is worth more than any single feature
-downstream of it.
+**#88 has mostly landed, and this entry was wrong to keep claiming otherwise.**
+The argument for it was that only 9 of 58 notes carried a `classId`. Making notes
+class-mandatory settled that: `/api/notes/upload` now requires a `classId` and
+verifies ownership with `assertClassBelongsToUser`, and `/notes` routes through a
+class picker, so no note can be filed without a class.
+
+What is genuinely left is one entry point: `app/(app)/classes/` has no file input
+and never calls `/api/notes/upload`. That is a button and a handler, not a
+feature. Treat #88 as small.
 
 #86 is load-bearing for the editor too: `uploadImage` is never passed to
 `NoteEditor`, so every pasted image becomes a base64 data URL inside the
 markdown column.
 
-## 6. Housekeeping — three issues describe work that is done
+## 6. Housekeeping — issues that describe work already shipped
 
-Not closed here, because re-scoping them is the owner's call.
+Verified against `develop` after PRs #91 and #60 merged. The heading said
+"three"; it is five, and #58 was missed entirely.
 
 - **#85** — session guard on `/api/chat` and a per-user scoping audit. The
   guard is in; the audit came back clean across every notes route.
@@ -104,13 +109,20 @@ Not closed here, because re-scoping them is the owner's call.
   feature sharing an issue.
 - **#16** — asks for Pinecone. pgvector is already in use with a 768-dimension
   column. Close as superseded.
+- **#58** — normalize all user math input to LaTeX. Done by the editor rebuild:
+  `normalizeTextMathToLatex` on the write path, KaTeX as the only renderer,
+  MathLive for structural editing, and now the same in table cells.
+
+Also in flight rather than outstanding: **#8** and **#28** are PR #61, **#27** is
+PR #62, **#26** is PR #63. Those three PRs stack — #63 contains #62 contains #61
+— so they merge in that order or not at all.
 
 ## 7. Suggested order
 
 1. **Search, find-in-note, export, payload trim.** A day's work between them,
    and it changes how the app feels to use every day.
-2. **#88 class association.** Unblocks the most downstream value per unit of
-   effort.
+2. **#88's remainder** — the upload entry point on the class page. Small now that
+   the association is enforced server-side.
 3. **Trash and restore.** Removes the only irreversible action in the feature.
 4. **Read-only view**, which also gives print, and settles the mermaid question.
 5. **#86 images**, then the larger retrieval work in #57 and #87.
