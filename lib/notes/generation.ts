@@ -19,6 +19,12 @@ export const OCR_SUPPORTED_MIME_TYPES = new Set([
   "image/heic",
   "image/heif",
 ]);
+/**
+ * Must match the `vector(768)` column in the schema. Both `gemini-embedding-2`
+ * and the retired `gemini-embedding-001` serve this size, which is why moving
+ * between them needed no migration — only the stored vectors had to go, because
+ * two models' vectors do not share a space.
+ */
 const EMBEDDING_DIMENSIONS = 768;
 const MAX_GENERATED_TOPIC_NOTES = 4;
 const TARGET_MARKDOWN_CHARS_PER_TOPIC_NOTE = 4500;
@@ -385,6 +391,15 @@ export function rebalanceGeneratedTopics<T extends { title: string; markdown: st
   });
 }
 
+/**
+ * Scale a vector to unit length.
+ *
+ * `gemini-embedding-2` already returns unit vectors at 768 dimensions, so this is
+ * a no-op there. It stays because it was not one for `gemini-embedding-001`,
+ * which returned an L2 norm of about 0.58 at the same size: pgvector cosine
+ * distance needs the magnitude gone, and a model swap should not silently change
+ * what a stored vector means.
+ */
 function l2Normalize(values: number[]) {
   const magnitude = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
   if (!Number.isFinite(magnitude) || magnitude === 0) {
