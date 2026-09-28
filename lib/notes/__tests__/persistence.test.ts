@@ -16,10 +16,9 @@ describe("normalizeNoteWriteMarkdown", () => {
     const content = normalizeNoteWriteMarkdown(markdown);
 
     expect(content.markdown).toBe(markdown);
+    // The paragraph keeps its inline math inline rather than being split in two.
     expect(content.document.blocks.map((block) => block.type)).toEqual([
       "header",
-      "paragraph",
-      "inlineMath",
       "paragraph",
       "table",
     ]);

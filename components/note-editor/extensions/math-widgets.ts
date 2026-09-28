@@ -1,7 +1,7 @@
 import { type EditorState, Prec, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
-import katex from "katex";
 import { findMathRanges, type MathRange } from "@/lib/notes/math-ranges";
+import { renderKatexHtml } from "@/components/note-editor/extensions/katex-render";
 import {
   enterMath,
   exitMath,
@@ -39,22 +39,6 @@ export function openMathRegion(view: EditorView, range: { from: number; to: numb
 // KaTeX rendering (regions not being edited)
 // ---------------------------------------------------------------------------
 
-const katexCache = new Map<string, string>();
-
-function renderKatex(latex: string, display: boolean) {
-  const key = `${display ? "D" : "I"}${latex}`;
-  let html = katexCache.get(key);
-  if (html === undefined) {
-    html = katex.renderToString(latex, {
-      displayMode: display,
-      throwOnError: false,
-      output: "htmlAndMathml",
-    });
-    katexCache.set(key, html);
-  }
-  return html;
-}
-
 class KatexWidget extends WidgetType {
   constructor(
     readonly latex: string,
@@ -72,7 +56,7 @@ class KatexWidget extends WidgetType {
     element.className = this.display ? "cm-note-math cm-note-math-display" : "cm-note-math";
     element.setAttribute("role", "button");
     element.setAttribute("title", "Edit formula");
-    element.innerHTML = renderKatex(this.latex, this.display);
+    element.innerHTML = renderKatexHtml(this.latex, this.display);
     element.addEventListener("mousedown", (event) => {
       event.preventDefault();
       // Positions are read from the DOM at click time, so edits elsewhere in

@@ -5,6 +5,20 @@ import { toast } from "sonner";
 
 export type AutosaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
+/**
+ * A save that can never succeed — the note was deleted, or the caller is no
+ * longer allowed to write it. The queue drops these instead of re-queuing,
+ * because a retry loop on a deleted note poisons every later flush: the badge
+ * stays on "Save failed" and a toast fires on each attempt, even though the
+ * note actually being edited saved fine.
+ */
+export class PermanentSaveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PermanentSaveError";
+  }
+}
+
 export type AutosaveDraft = {
   noteId: string;
   markdown: string;
@@ -80,6 +94,13 @@ export function useAutosave({ noteId, onSave, enabled = true, delay = 180 }: Use
           await onSaveRef.current(id, markdown);
           setStatus(queueRef.current.size > 0 ? "dirty" : "saved");
         } catch (error) {
+          if (error instanceof PermanentSaveError) {
+            // The note is gone. Drop its content and carry on with the rest of
+            // the queue rather than retrying it forever.
+            setStatus(queueRef.current.size > 0 ? "dirty" : "idle");
+            continue;
+          }
+
           if (!queueRef.current.has(id)) {
             queueRef.current.set(id, markdown);
           }

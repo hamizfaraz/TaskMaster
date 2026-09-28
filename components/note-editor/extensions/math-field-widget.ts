@@ -1,6 +1,12 @@
 import { type EditorState, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
 import type { MathfieldElement } from "mathlive";
+import {
+  createLatexSourceUi,
+  createMathCloseButton,
+  createMathFieldElement,
+  focusMathField,
+} from "@/components/note-editor/extensions/math-field-ui";
 import { normalizeLatex } from "@/lib/math/latex";
 
 // ---------------------------------------------------------------------------
@@ -193,45 +199,13 @@ export class MathFieldWidget extends WidgetType {
       : "cm-note-mathfield";
     wrapper.contentEditable = "false";
 
-    const field = document.createElement("math-field") as MathfieldElement;
-    field.setAttribute("math-virtual-keyboard-policy", "manual");
-    field.setAttribute("smart-mode", "on");
-    field.setAttribute("placeholder", "\\frac{a}{b}");
-    field.defaultMode = this.session.display ? "math" : "inline-math";
-    field.value = initialLatex;
+    const field = createMathFieldElement(initialLatex, this.session.display);
+    const { toggle, source } = createLatexSourceUi(initialLatex, this.session.display ? 3 : 1);
+    const closeButton = createMathCloseButton();
 
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "cm-note-mathfield-toggle";
-    toggle.textContent = "LaTeX";
-    toggle.title = "Edit the LaTeX directly";
-    toggle.setAttribute("aria-pressed", "false");
+    wrapper.append(field, toggle, closeButton, source);
 
-    const source = document.createElement("textarea");
-    source.className = "cm-note-mathfield-source";
-    source.rows = this.session.display ? 3 : 1;
-    source.spellcheck = false;
-    source.value = initialLatex;
-    source.hidden = true;
-    source.setAttribute("aria-label", "LaTeX source");
-
-    wrapper.append(field, toggle, source);
-
-    /**
-     * MathLive nulls its keyboard delegate when the element is disconnected,
-     * and its focus() does not guard against that — so a focus call that
-     * races a teardown throws. Never let that reach the editor.
-     */
-    const focusField = () => {
-      if (!field.isConnected) {
-        return;
-      }
-      try {
-        field.focus();
-      } catch {
-        // disposed mid-flight; the session is already closing
-      }
-    };
+    const focusField = () => focusMathField(field);
 
     const currentSession = () => {
       const session = view.state.field(mathSessionField, false) ?? null;
@@ -378,6 +352,9 @@ export class MathFieldWidget extends WidgetType {
       event.preventDefault();
       exit(detail?.direction === "backward" || detail?.direction === "upward" ? "before" : "after");
     });
+
+    closeButton.addEventListener("mousedown", (event) => event.preventDefault());
+    closeButton.addEventListener("click", () => exit("after"));
 
     toggle.addEventListener("mousedown", (event) => event.preventDefault());
     toggle.addEventListener("click", () => {

@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import type { NoteContext } from "@/lib/notes/context";
 
 export const quizQuestionTypes = ["multiple_choice", "free_response", "true_false"] as const;
 export const quizDifficulties = ["easy", "medium", "hard"] as const;
@@ -7,12 +8,8 @@ export const quizDifficulties = ["easy", "medium", "hard"] as const;
 export type QuizQuestionType = (typeof quizQuestionTypes)[number];
 export type QuizDifficulty = (typeof quizDifficulties)[number];
 
-export type QuizContextNote = {
-  id: string;
-  title: string;
-  markdown: string;
-  embedding: number[];
-};
+/** @deprecated Use `NoteContext` from `@/lib/notes/context`. */
+export type QuizContextNote = NoteContext;
 
 export type QuizQuestion = {
   id: string;
@@ -92,6 +89,9 @@ function createContextPrompt(notes: QuizContextNote[]) {
         `NOTE ${index + 1}: ${note.title}`,
         `Stored embedding vector (${note.embedding.length} dimensions):`,
         JSON.stringify(summarizeEmbedding(note.embedding)),
+        note.highlights.length > 0
+          ? `Student-highlighted passages (treat as the most important material in this note):\n${note.highlights.map((highlight) => `- ${highlight}`).join("\n")}`
+          : "The student highlighted nothing in this note.",
         "Markdown content:",
         note.markdown || "(No readable note body was stored for this note.)",
       ].join("\n"),
@@ -136,6 +136,7 @@ export async function generateQuizQuestions(params: {
               "Create study quiz questions from the supplied notes.",
               "Use every selected note's stored embedding vector as semantic context, and use the note markdown as factual evidence.",
               "Focus on important definitions, relationships, procedures, formulas, examples, edge cases, and likely exam points.",
+              "When a note lists student-highlighted passages, cover every one of them before drawing on the surrounding prose: the student marked those as what matters most.",
               "If a note contains worked examples, create some questions in the same style or a nearby style while changing values, framing, or reasoning steps.",
               "Keep questions varied enough that each one remains challenging. Do not ask trivia about filenames or note metadata.",
               `Difficulty: ${params.difficulty}.`,

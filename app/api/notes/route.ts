@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
+import { ContentTooLargeError, NOTE_TOO_LARGE_MESSAGE } from "@/lib/notes/limits";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { note } from "@/lib/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { assertClassBelongsToUser } from "@/lib/classes/queries";
 import { normalizeNoteWriteContent, normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
+import { embedNote } from "@/lib/notes/embedding";
 
 export const runtime = "nodejs";
 
@@ -16,7 +18,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const classIdParam = new URL(req.url).searchParams.get("classId");
+  const params = new URL(req.url).searchParams;
+  const classIdParam = params.get("classId");
+  const inTrash = params.get("trash") === "1";
   if (classIdParam) {
     const ownedClass = await assertClassBelongsToUser(classIdParam, session.user.id);
     if (!ownedClass) {
@@ -44,6 +48,8 @@ export async function GET(req: Request) {
     .where(
       and(
         eq(note.userId, session.user.id),
+        // `?trash=1` lists what has been deleted, so the sidebar can offer it back.
+        inTrash ? isNotNull(note.deletedAt) : isNull(note.deletedAt),
         classIdParam ? eq(note.classId, classIdParam) : undefined,
       ),
     )
@@ -73,13 +79,21 @@ export async function POST(req: Request) {
     typeof body.title === "string" && body.title.trim()
       ? body.title.trim()
       : "Untitled";
-  const classId = body.classId === null ? null : typeof body.classId === "string" ? body.classId : null;
+  // Every note belongs to a class. The column stays nullable in the database
+  // because rows already in the trash predate this rule and must still be
+  // restorable; the requirement is enforced here, on the way in.
+  const classId = typeof body.classId === "string" && body.classId ? body.classId : null;
 
-  if (classId) {
-    const ownedClass = await assertClassBelongsToUser(classId, session.user.id);
-    if (!ownedClass) {
-      return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });
-    }
+  if (!classId) {
+    return NextResponse.json(
+      { error: "A note must be created inside a class." },
+      { status: 400 },
+    );
+  }
+
+  const ownedClass = await assertClassBelongsToUser(classId, session.user.id);
+  if (!ownedClass) {
+    return NextResponse.json({ error: "Invalid class selection" }, { status: 400 });
   }
 
   let content: ReturnType<typeof normalizeNoteWriteContent>;
@@ -88,24 +102,40 @@ export async function POST(req: Request) {
       body.markdown !== undefined
         ? normalizeNoteWriteMarkdown(body.markdown)
         : normalizeNoteWriteContent(body.content);
-  } catch {
+  } catch (error) {
+    // "Too large" is well-formed content, not invalid content. Saying the wrong
+    // one sends people editing text that was never the problem.
+    if (error instanceof ContentTooLargeError) {
+      return NextResponse.json({ error: NOTE_TOO_LARGE_MESSAGE }, { status: 413 });
+    }
     return NextResponse.json(
       { error: "Invalid note content" },
       { status: 400 },
     );
   }
 
-  const [created] = await db
-    .insert(note)
-    .values({
-      userId: session.user.id,
-      title,
-      classId,
-      content: content.document,
-      markdown: content.markdown,
-      sourceType: "manual",
-    })
-    .returning();
+  // A note created with text (duplicate, .md import) is embedded up front. The
+  // common empty-note case costs nothing: embedNote returns null for blank
+  // markdown and the first real save embeds it.
+  const embedding = await embedNote({ title, markdown: content.markdown });
 
-  return NextResponse.json(created, { status: 201 });
+  try {
+    const [created] = await db
+      .insert(note)
+      .values({
+        userId: session.user.id,
+        title,
+        classId,
+        content: content.document,
+        markdown: content.markdown,
+        sourceType: "manual",
+        ...(embedding ? { embedding, embeddingUpdatedAt: new Date() } : {}),
+      })
+      .returning();
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    console.error("[POST /api/notes]", error);
+    return NextResponse.json({ error: "Could not create the note." }, { status: 500 });
+  }
 }

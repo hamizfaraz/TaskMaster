@@ -97,6 +97,43 @@ describe("MathFieldWidget bridge", () => {
     expect(view.state.doc.toString()).toBe("Area $x^2$ here");
   });
 
+  it("the close button exits the field the same way Escape does", () => {
+    // Escape and clicking away already closed a field, but neither was visible.
+    const { host, view } = mount("Area $x^2$ here");
+
+    act(() => view.dispatch({ effects: enterMath.of({ from: 5, to: 10 }) }));
+    act(() => typeIntoField(host, "y^2"));
+
+    const close = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Close the formula editor"]',
+    );
+    expect(close).not.toBeNull();
+    act(() => close!.click());
+
+    expect(view.state.field(mathSessionField)).toBeNull();
+    expect(field(host)).toBeNull();
+    expect(view.state.doc.toString()).toBe("Area $y^2$ here");
+    expect(undoDepth(view.state)).toBe(1);
+    expect(view.state.selection.main.head).toBe("Area $y^2$".length);
+  });
+
+  it("the close button does not steal focus before it commits", () => {
+    // mousedown on the button must be prevented: letting it move focus would
+    // blur the field and close the session before the click ever arrived.
+    const { host, view } = mount("Area $x^2$ here");
+    act(() => view.dispatch({ effects: enterMath.of({ from: 5, to: 10 }) }));
+
+    const close = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Close the formula editor"]',
+    )!;
+    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => {
+      close.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.field(mathSessionField)).not.toBeNull();
+  });
+
   it("keeps the generator's $$ fence layout and lands on the next line after a display formula", () => {
     const doc = "Before\n\n$$\na^2\n$$\n\nAfter";
     const { host, view } = mount(doc);

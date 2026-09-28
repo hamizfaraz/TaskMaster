@@ -1,8 +1,12 @@
 # Note Editor — Requirements
 
 Status: **built.** All nine requirements are implemented and covered by tests;
-see [Built](#built) for where each one lives and how to verify it by hand. The previous Editor.js-based editor was removed on this branch
-(see [Background](#background)); nothing has been chosen or built yet.
+see [Built](#built) for where each one lives and how to verify it by hand. The
+previous Editor.js-based editor was removed on this branch (see
+[Background](#background)).
+
+Known gaps and the bugs found auditing this work afterwards are tracked in
+[note-bugfix-plan.md](./note-bugfix-plan.md).
 
 Section 1 is what was asked for. Section 2 is what has to be decided before
 building. Everything after that is verified context about the codebase as it
@@ -20,7 +24,7 @@ issues, commits, and tests. Priority is **Must** unless stated otherwise.
 | NE-1 | All note text is **Markdown + LaTeX**. No proprietary rich-text format. | Must | Implies Markdown is the canonical representation — see Q1. |
 | NE-2 | LaTeX is embedded in the Markdown **exactly as the note generator emits it**: `$…$` inline, `$$` on its own lines for display. | Must | Format pinned in detail below. |
 | NE-3 | The editor works **seamlessly with generator output**: a generated note opens, edits, and saves with no lossy transform in either direction. | Must | Round-trip must be lossless. One known defect today — see detail. |
-| NE-4 | While typing, the user can **insert a block of any Markdown type**. | Must | Full list in detail. Tables are a gap today. |
+| NE-4 | While typing, the user can **insert a block of any Markdown type**. | Must | Full list in detail. |
 | NE-5 | While typing, the user can **insert a math block**, choosing **inline** or **display ("large")**. | Must | Maps directly onto the data layer's `inlineMath` / `math` block types. |
 | NE-6 | Take **direct inspiration from Obsidian**. | Must | Markdown-native typing, live preview, `$`/`$$` math syntax. See Q4 on modes. |
 | NE-7 | A math block gets a **Desmos / Mathway-style structural input**: the user types characters naturally *or* edits the LaTeX directly, and the two stay in sync. | Must | `lib/math/latex.ts` already normalizes typed math → LaTeX. See detail. |
@@ -92,7 +96,7 @@ the rewrite prompt), so all of these must be insertable and editable:
 | Inline math `$…$` | `inlineMath` | ✓ spacing defect — NE-3 |
 | Display math `$$` | `math` | ✓ |
 | Mermaid fenced block | `mermaid` | schema only; renderer removed — Q6 |
-| **Table** | **none** | **gap** — Q3 |
+| **Table** | **grid widget with row/column controls** | done |
 
 The generator prompt says *"Convert all parsed tables into Markdown tables"*,
 but `parse-markdown.ts` has no table detection and the schema has no table
@@ -156,7 +160,7 @@ least match, plus what NE-1–NE-8 add:
 | Q3 | **Tables.** Generator emits them; schema has no block; parser doesn't detect them. Add a `table` block + parser support, or store tables as raw Markdown inside a paragraph and render them? | **Yes** for NE-3/NE-4 | **Native GFM tables.** A `table` block was added to the data layer (parser detection, serializer, Zod; round-trip tested). In the editor a table is just markdown text; `remark-gfm` already renders it. |
 | Q4 | **Obsidian mode.** Obsidian has *Live Preview* (Markdown renders in place as you type; syntax shows when the cursor is on it) and *Source mode* (raw text). NE-6 implies Live Preview. Is Source mode also required? | No — but shapes the architecture | **Live Preview on CodeMirror 6, plus a Source-mode toggle.** Obsidian is built on CM6; syntax is hidden on lines that don't contain the cursor and shown on the active line. |
 | Q5 | **Inline math spacing** (the NE-3 defect). Fix the join in `math-regions.ts`, or change the model so inline math lives inside a paragraph rather than as a sibling block? Interacts with Q1. | No | **Both.** `getBlockSeparator` no longer inserts a space before closing punctuation or after an opening bracket (tested), *and* the edit path never serializes blocks anymore, so the defect cannot recur there. |
-| Q6 | **Mermaid and code highlighting.** The generator emits both; both renderers were removed. Render them (re-add `mermaid` and a highlighter), or show as plain fenced code for now? | No | **Code highlighting yes** (`@codemirror/language-data`, lazy). **Mermaid deferred** — rendered as a plain fenced block for now; the `mermaid` block type stays so stored notes keep parsing. |
+| Q6 | **Mermaid and code highlighting.** The generator emits both; both renderers were removed. Render them (re-add `mermaid` and a highlighter), or show as plain fenced code for now? | No | **Code highlighting yes** (`@codemirror/language-data`, lazy), **corrected after the fact**: the language was parsed but nothing styled the result, because the Markdown `HighlightStyle` defines no code tags. A fallback style (`codeHighlight` in `extensions/theme.ts`) now covers them. **Mermaid deferred** — rendered as a plain fenced block; the `mermaid` block type stays so stored notes keep parsing, but the generator is still told to emit `​```mermaid` fences that nothing renders. See the bug plan. |
 | Q7 | **Images** — #86. Uploads are base64-inlined into jsonb today. Blob storage is its own issue, but the image block should be built against a URL, not bytes. | No | **Build against a URL.** The editor takes an optional `uploadImage(file) → { url }` prop; until #86 lands, the fallback is a base64 data URL. |
 | Q8 | **Highlights** — #7, #8, #89 all need the editor to expose highlighted regions. In scope for the first build, or a follow-on? Affects the block schema. | No | **Follow-on.** The editor styles Obsidian's `==highlight==` syntax and stores it as markdown, which gives #7 / #89 a retrievable hook without a schema change now. |
 ---
@@ -194,9 +198,14 @@ least match, plus what NE-1–NE-8 add:
 
 - MathLive was exercised in jsdom through a stub element; focus handling in
   real browsers (Safari especially) still needs the manual pass above.
-- Tables render as monospace source in live preview, not as a grid widget.
-- Mermaid fences render as plain code (the renderer was removed with the old
-  editor); code fences highlight via `@codemirror/language-data`.
+- Mermaid is no longer generated. The renderer went with the old editor, and
+  rather than re-adding a large dependency for a feature no note used, the
+  generator instruction was removed. The `mermaid` block type stays so a note
+  that already contains such a fence still round-trips losslessly, and it
+  renders as plain fenced code. Code fences load a grammar via `@codemirror/language-data` and are
+  painted by the `codeHighlight` fallback style; the end-to-end render is not
+  covered by an automated test, because the grammar loads asynchronously and
+  jsdom does not complete the nested re-parse.
 - Images inline as base64 until #86 lands (2 MB cap).
 - `==highlight==` is styled in the editor only; `LatexMarkdown` shows it raw.
 

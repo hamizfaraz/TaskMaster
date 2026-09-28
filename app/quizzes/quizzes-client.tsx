@@ -49,6 +49,9 @@ import type {
 import { cx } from "@/lib/utils";
 
 type QuizNoteOption = {
+  /** Which class the note is filed under, so a picker spanning courses is legible. */
+  className?: string | null;
+
   id: string;
   title: string;
   updatedAt: string;
@@ -980,6 +983,7 @@ export function QuizzesClient({
                         {note.title}
                       </span>
                       <span className="mt-1 block text-sm text-muted-foreground">
+                        {note.className ? `${note.className} · ` : ""}
                         {note.hasEmbedding
                           ? "Embedding ready"
                           : "Embedding required"}

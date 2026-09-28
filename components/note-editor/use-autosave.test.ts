@@ -6,7 +6,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { toast } from "sonner";
-import { useAutosave } from "@/components/note-editor/use-autosave";
+import { PermanentSaveError, useAutosave } from "@/components/note-editor/use-autosave";
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -108,6 +108,41 @@ describe("useAutosave", () => {
 
     expect(onSave).toHaveBeenCalledTimes(2);
     expect(onSave).toHaveBeenLastCalledWith("note-1", "keep me");
+    expect(result.current.status).toBe("saved");
+  });
+
+  it("drops a note whose save can never succeed instead of retrying it forever", async () => {
+    // Deleting a note mid-debounce used to leave a permanently failing entry
+    // in the queue: every later flush retried it, toasted, and left the badge
+    // on "Save failed" even though the note being edited saved fine.
+    const onSave = vi.fn(async (noteId: string) => {
+      if (noteId === "gone") {
+        throw new PermanentSaveError("Note not found");
+      }
+    });
+
+    const { result, rerender } = renderHook(
+      ({ noteId }) => useAutosave({ noteId, onSave, delay: 10 }),
+      { initialProps: { noteId: "gone" } },
+    );
+
+    act(() => result.current.notifyChange("typed into the doomed note"));
+    await act(async () => {
+      await result.current.flush();
+    });
+
+    expect(onSave).toHaveBeenCalledWith("gone", "typed into the doomed note");
+    expect(result.current.status).not.toBe("error");
+
+    // A later note saves cleanly, and the dead entry never comes back.
+    rerender({ noteId: "alive" });
+    act(() => result.current.notifyChange("still working"));
+    await act(async () => {
+      await result.current.flush();
+    });
+
+    expect(onSave).toHaveBeenCalledWith("alive", "still working");
+    expect(onSave).toHaveBeenCalledTimes(2);
     expect(result.current.status).toBe("saved");
   });
 

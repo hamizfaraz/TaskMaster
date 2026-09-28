@@ -104,6 +104,13 @@ export const note = pgTable(
     mimeType: text("mime_type"),
     fileSize: integer("file_size"),
     embedding: vector("embedding", { dimensions: 768 }),
+    // When `embedding` was last computed. Used to throttle re-embedding on
+    // autosave and to tell a stale vector from a missing one.
+    embeddingUpdatedAt: timestamp("embedding_updated_at"),
+    // Soft delete. Set rather than removing the row so a deletion can be undone;
+    // nothing purges on a timer, because silently destroying coursework is the
+    // wrong default and this app has no scheduler anyway.
+    deletedAt: timestamp("deleted_at"),
     classId: text("class_id").references(() => parseTestCourse.id, {
       onDelete: "set null",
     }),
@@ -117,6 +124,7 @@ export const note = pgTable(
     index("note_userId_idx").on(table.userId),
     index("note_class_id_idx").on(table.classId),
     index("note_createdAt_idx").on(table.createdAt),
+    index("note_deleted_at_idx").on(table.deletedAt),
   ],
 );
 

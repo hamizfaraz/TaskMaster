@@ -13,12 +13,13 @@ import { useRouter } from "next/navigation";
 import {
   CheckSquare,
   ChevronDown,
-  ChevronRight,
   Copy,
+  Download,
   FileText,
   Folder,
   FolderInput,
   Plus,
+  Search,
   Sparkles,
   Square,
   Trash2,
@@ -30,13 +31,22 @@ import { useAsciiBackgroundEnabled } from "@/components/shell/background-prefere
 import { Button } from "@/components/ui/button";
 import { cx } from "@/lib/utils";
 import {
+  formatBytes,
+  MAX_NOTE_MARKDOWN_CHARS,
+  MAX_UPLOAD_FILE_BYTES,
+  NOTE_TOO_LARGE_MESSAGE,
+} from "@/lib/notes/limits";
+import {
   noteRecordToWorkspaceNote,
   isTempNoteId,
   sortWorkspaceNotes,
   type NoteRecord,
   type WorkspaceNote,
 } from "@/lib/notes/records";
-import { NoteEditor } from "@/components/note-editor/note-editor";
+import Link from "next/link";
+import { NoteEditor, type NoteEditorHandle } from "@/components/note-editor/note-editor";
+import { searchNotes } from "@/lib/notes/search";
+import { PermanentSaveError } from "@/components/note-editor/use-autosave";
 
 type WorkspaceClass = {
   id: string;
@@ -49,7 +59,7 @@ type WorkspaceClass = {
 type NotesWorkspaceProps = {
   initialNotes: WorkspaceNote[];
   classes: WorkspaceClass[];
-  initialClassId: string | null;
+  initialClassId: string;
   shouldCreateOnMount: boolean;
   resetHref: string;
 };
@@ -110,7 +120,8 @@ function getClassShortLabel(item: WorkspaceClass) {
 const isTempNote = isTempNoteId;
 
 function createTempNote(
-  classId: string | null,
+  /** Required: a note has to have a home before it exists. */
+  classId: string,
   overrides?: Partial<WorkspaceNote>,
 ): WorkspaceNote {
   const now = new Date().toISOString();
@@ -235,15 +246,16 @@ export function NotesWorkspace({
     noteId: initialSelectedNote?.id ?? null,
     value: initialSelectedNote?.title ?? "Untitled",
   }));
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [isPending, startTransition] = useTransition();
+  const [searchQuery, setSearchQuery] = useState("");
+  // The editor's text runs ahead of `notes`, which only catches up when an
+  // autosave response lands. Export and duplicate read from here so neither
+  // silently drops the last few seconds of typing.
+  const noteEditorRef = useRef<NoteEditorHandle | null>(null);
+  const [trashedNotes, setTrashedNotes] = useState<WorkspaceNote[] | null>(null);
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
 
   // Sidebar drag-and-drop state
-  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
-  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
-
   // Sidebar multi-select state
   const [sidebarSelectedIds, setSidebarSelectedIds] = useState<Set<string>>(
     () => new Set(),
@@ -276,34 +288,28 @@ export function NotesWorkspace({
     () => notes.find((note) => note.id === selectedId) ?? notes[0] ?? null,
     [notes, selectedId],
   );
-  const recentNotes = useMemo(
-    () => sortWorkspaceNotes(notes).slice(0, 8),
-    [notes],
+  // The page already ships every note's markdown, so searching is a filter over
+  // data in hand: no endpoint, no index, no round-trip.
+  const searchResults = useMemo(
+    () =>
+      searchNotes(
+        notes.map((n) => ({ id: n.id, title: n.title, markdown: n.content.markdown, note: n })),
+        searchQuery,
+      ),
+    [notes, searchQuery],
   );
-  const groupedNotes = useMemo(
-    () => [
-      ...classes.map((item) => ({
-        id: item.id,
-        title: getClassLabel(item),
-        shortTitle: getClassShortLabel(item),
-        classId: item.id as string | null,
-        notes: notes.filter((note) => note.classId === item.id),
-      })),
-      {
-        id: "unfiled",
-        title: "Unfiled",
-        shortTitle: "Unfiled",
-        classId: null as string | null,
-        notes: notes.filter((note) => !note.classId),
-      },
-    ],
-    [classes, notes],
-  );
+  const isSearching = searchQuery.trim().length > 0;
+
   const draftTitle =
     selectedNote && titleDraftState.noteId === selectedNote.id
       ? titleDraftState.value
       : (selectedNote?.title ?? "Untitled");
-  const fallbackClassId = initialClassId ?? selectedNote?.classId ?? null;
+  // The workspace is always scoped to one class, chosen at `/notes` and carried
+  // in the URL. Creation, upload and import all use it. There is deliberately
+  // no fallback: guessing a class filed work into an arbitrary course without
+  // telling anyone, which is worse than refusing.
+  const activeClass = classes.find((item) => item.id === initialClassId) ?? null;
+  const fallbackClassId = initialClassId;
 
   useEffect(() => {
     selectedIdRef.current = selectedNote?.id ?? null;
@@ -326,7 +332,11 @@ export function NotesWorkspace({
       | { error?: string }
       | null;
     if (!response.ok) {
-      throw new Error(payload?.error || "The notes request failed.");
+      const message = payload?.error || "The notes request failed.";
+      // 404/403 mean the note is gone or not ours: retrying can never work.
+      throw response.status === 404 || response.status === 403
+        ? new PermanentSaveError(message)
+        : new Error(message);
     }
     return noteRecordToWorkspaceNote(payload as NoteRecord);
   }
@@ -358,15 +368,6 @@ export function NotesWorkspace({
         ...current.filter((n) => !nextNotes.some((nn) => nn.id === n.id)),
       ]),
     );
-  }
-
-  function toggleGroup(groupId: string) {
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
   }
 
   function selectNote(note: WorkspaceNote) {
@@ -414,8 +415,17 @@ export function NotesWorkspace({
   // Create (optimistic)
   // -------------------------------------------------------------------------
 
-  function handleCreateNote(classId?: string | null, silent = false) {
-    const temp = createTempNote(classId ?? null);
+  function handleCreateNote(classId?: string | null) {
+    const targetClassId = classId ?? fallbackClassId;
+    if (!targetClassId) {
+      toast.error("Create a class first", {
+        description: "Notes live inside a class, so there needs to be one to put this in.",
+        duration: 6000,
+      });
+      return;
+    }
+
+    const temp = createTempNote(targetClassId);
 
     // Urgent on purpose: the workspace must be showing the new note before
     // the next keystroke. Inside the transition these updates could sit
@@ -425,26 +435,18 @@ export function NotesWorkspace({
     setSelectedId(temp.id);
     setTitleDraftState({ noteId: temp.id, value: "Untitled" });
 
-    if (!silent && classId) {
-      setCollapsedGroups((current) => {
-        const next = new Set(current);
-        next.delete(classId);
-        return next;
-      });
-    }
-
     // The request itself is the transition (it drives `isPending`).
-    startTransition(() => createNoteOnServer(temp, classId ?? null));
+    startTransition(() => createNoteOnServer(temp, targetClassId));
   }
 
-  async function createNoteOnServer(temp: WorkspaceNote, classId: string | null) {
+  async function createNoteOnServer(temp: WorkspaceNote, classId: string) {
     try {
       const response = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: "Untitled",
-          classId: classId ?? null,
+          classId,
           markdown: "",
         }),
       });
@@ -488,14 +490,14 @@ export function NotesWorkspace({
     }
   }
 
-  const createNoteFromCurrentFilter = useEffectEvent((silent: boolean) => {
-    handleCreateNote(fallbackClassId, silent);
+  const createNoteFromCurrentFilter = useEffectEvent(() => {
+    handleCreateNote(fallbackClassId);
   });
 
   useEffect(() => {
     if (!shouldCreateOnMount || hasHandledCreateOnMountRef.current) return;
     hasHandledCreateOnMountRef.current = true;
-    createNoteFromCurrentFilter(true);
+    createNoteFromCurrentFilter();
     router.replace(resetHref);
   }, [resetHref, router, shouldCreateOnMount]);
 
@@ -522,6 +524,11 @@ export function NotesWorkspace({
         } | null;
         throw new Error(payload?.error || "Could not delete the note.");
       }
+      setTrashedNotes(null); // reload next time the trash is opened
+      toast.success("Moved to trash", {
+        description: "Restore it from the trash at the bottom of the sidebar.",
+        duration: 5000,
+      });
     } catch (err) {
       setNotes((current) => sortWorkspaceNotes([noteToDelete, ...current]));
       setSelectedId(noteToDelete.id);
@@ -536,13 +543,86 @@ export function NotesWorkspace({
   // Duplicate (optimistic)
   // -------------------------------------------------------------------------
 
+  /**
+   * A note's text as it stands now.
+   *
+   * `notes` only catches up when an autosave response lands, so reading it
+   * directly meant duplicating or exporting within a second of typing lost the
+   * last paragraph. The editor knows the live value for whichever note is
+   * open; any other note is only ever as current as its last save.
+   */
+  async function loadTrash() {
+    try {
+      const response = await fetch("/api/notes?trash=1");
+      const payload = (await response.json().catch(() => null)) as
+        | (NoteRecord & { error?: string })[]
+        | { error?: string }
+        | null;
+      if (!response.ok || !Array.isArray(payload)) {
+        throw new Error((payload as { error?: string })?.error || "Could not load the trash.");
+      }
+      setTrashedNotes(payload.map((record) => noteRecordToWorkspaceNote(record)));
+    } catch (err) {
+      setTrashedNotes([]);
+      toast.error("Could not load the trash", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 5000,
+      });
+    }
+  }
+
+  async function handleRestoreNote(target: WorkspaceNote, classId: string) {
+    try {
+      const response = await fetch(`/api/notes/${target.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId }),
+      });
+      const restored = await readNoteRecord(response);
+      setTrashedNotes((current) => (current ?? []).filter((n) => n.id !== target.id));
+      mergeNote(restored);
+      setSelectedId(restored.id);
+      toast.success("Note restored");
+    } catch (err) {
+      toast.error("Could not restore note", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 5000,
+      });
+    }
+  }
+
+  async function handleDeleteForever(target: WorkspaceNote) {
+    if (!window.confirm(`Permanently delete "${getRenderableTitle(target.title)}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/notes/${target.id}?permanent=1`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Could not delete the note.");
+      }
+      setTrashedNotes((current) => (current ?? []).filter((n) => n.id !== target.id));
+    } catch (err) {
+      toast.error("Could not delete note", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 5000,
+      });
+    }
+  }
+
+  function currentMarkdownOf(target: WorkspaceNote) {
+    return target.id === selectedNote?.id
+      ? (noteEditorRef.current?.getMarkdown() ?? target.content.markdown)
+      : target.content.markdown;
+  }
+
   async function handleDuplicateNote() {
     if (!selectedNote || isTempNote(selectedNote.id)) return;
 
     const source = selectedNote;
-    const temp = createTempNote(source.classId, {
+    const temp = createTempNote(source.classId ?? fallbackClassId ?? "", {
       title: `${source.title} (copy)`,
-      content: source.content,
+      content: { ...source.content, markdown: currentMarkdownOf(source) },
     });
 
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
@@ -556,7 +636,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          markdown: source.content.markdown,
+          markdown: currentMarkdownOf(source),
         }),
       });
       const created = await readNoteRecord(response);
@@ -588,6 +668,23 @@ export function NotesWorkspace({
   // -------------------------------------------------------------------------
 
   async function handleGenerateFromFile(file: File, classId?: string | null) {
+    const targetClassId = classId ?? fallbackClassId;
+    if (!targetClassId) {
+      toast.error("Choose a class first", {
+        description: "Generated notes are filed under a class.",
+        duration: 6000,
+      });
+      return;
+    }
+    if (file.size > MAX_UPLOAD_FILE_BYTES) {
+      // Refused here rather than after the upload: the answer cannot change, so
+      // sending 10+ MB first only makes the user wait for it.
+      toast.error("That file is too large", {
+        description: `${formatBytes(file.size)} — the maximum is ${formatBytes(MAX_UPLOAD_FILE_BYTES)}.`,
+        duration: 6000,
+      });
+      return;
+    }
     const toastId = toast.loading(`Parsing ${file.name}…`, {
       description: "This can take up to a minute for large files.",
       duration: Infinity,
@@ -600,7 +697,7 @@ export function NotesWorkspace({
         "title",
         file.name.replace(/\.[^.]+$/, "") || "Uploaded Note",
       );
-      if (classId) formData.set("classId", classId);
+      formData.set("classId", targetClassId);
 
       toast.loading("Generating notes with AI…", {
         id: toastId,
@@ -647,12 +744,28 @@ export function NotesWorkspace({
   }
 
   async function handleImportMdFile(file: File, classId?: string | null) {
+    const targetClassId = classId ?? fallbackClassId;
+    if (!targetClassId) {
+      toast.error("Choose a class first", {
+        description: "Imported notes are filed under a class.",
+        duration: 6000,
+      });
+      return;
+    }
     const toastId = toast.loading(`Importing ${file.name}…`, {
       duration: Infinity,
     });
 
     try {
       const text = await file.text();
+      if (text.length > MAX_NOTE_MARKDOWN_CHARS) {
+        toast.error("That file is too long to import", {
+          id: toastId,
+          description: NOTE_TOO_LARGE_MESSAGE,
+          duration: 6000,
+        });
+        return;
+      }
       const title = file.name.replace(/\.md$/i, "").trim() || "Imported Note";
 
       const response = await fetch("/api/notes", {
@@ -660,7 +773,7 @@ export function NotesWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
-          classId: classId ?? null,
+          classId: targetClassId,
           markdown: text,
         }),
       });
@@ -683,6 +796,29 @@ export function NotesWorkspace({
       });
       throw err;
     }
+  }
+
+  /**
+   * Download the note as a .md file.
+   *
+   * Markdown is the canonical format, so this is the file itself rather than
+   * a conversion: what comes out is exactly what is stored.
+   */
+  function handleExportNote() {
+    if (!selectedNote) return;
+
+    const title = getRenderableTitle(draftTitle).trim() || "note";
+    const safeName = title.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80) || "note";
+    const markdown = noteEditorRef.current?.getMarkdown() ?? selectedNote.content.markdown;
+
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeName}.md`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function handleTitleCommit() {
@@ -708,26 +844,6 @@ export function NotesWorkspace({
   // -------------------------------------------------------------------------
   // Sidebar drag-and-drop: move note to a different class
   // -------------------------------------------------------------------------
-
-  function handleNoteDrop(groupClassId: string | null, noteId: string) {
-    const note = notes.find((n) => n.id === noteId);
-    if (!note || note.classId === groupClassId || isTempNote(noteId)) return;
-
-    setNotes((current) =>
-      current.map((n) =>
-        n.id === noteId ? { ...n, classId: groupClassId } : n,
-      ),
-    );
-    startTransition(
-      () =>
-        void saveNote(noteId, { classId: groupClassId }).catch((err) => {
-          toast.error("Could not move note", {
-            description: err instanceof Error ? err.message : undefined,
-            duration: 5000,
-          });
-        }),
-    );
-  }
 
   // -------------------------------------------------------------------------
   // Sidebar multi-select
@@ -764,21 +880,55 @@ export function NotesWorkspace({
 
   async function handleBulkDelete() {
     if (sidebarSelectedIds.size === 0) return;
-    const ids = [...sidebarSelectedIds];
+    // A note whose creation is still in flight cannot be deleted server-side,
+    // and removing it locally would only have it reappear when the POST
+    // resolves. Single-note delete already refuses these.
+    const ids = [...sidebarSelectedIds].filter((id) => !isTempNote(id));
+    if (ids.length === 0) {
+      clearSidebarSelect();
+      return;
+    }
 
+    const removed = notes.filter((n) => ids.includes(n.id));
     setNotes((current) => current.filter((n) => !ids.includes(n.id)));
     if (selectedNote && ids.includes(selectedNote.id)) {
       setSelectedId(notes.find((n) => !ids.includes(n.id))?.id ?? null);
     }
     clearSidebarSelect();
+    setTrashedNotes(null); // reload next time the trash is opened
 
-    await Promise.allSettled(
-      ids.map(
-        (id) =>
-          !isTempNote(id) && fetch(`/api/notes/${id}`, { method: "DELETE" }),
-      ),
+    const toastId = toast.loading(
+      `Deleting ${ids.length} note${ids.length === 1 ? "" : "s"}...`,
+      { duration: Infinity },
     );
-    // On partial failure we could restore, but for now just log
+
+    // `fetch` resolves on 4xx/5xx, so the status has to be checked explicitly
+    // or a failed delete looks identical to a successful one.
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const response = await fetch(`/api/notes/${id}`, { method: "DELETE" });
+          return response.ok ? null : id;
+        } catch {
+          return id;
+        }
+      }),
+    );
+
+    const failed = results.filter((id): id is string => id !== null);
+    if (failed.length === 0) {
+      toast.success(`Deleted ${ids.length} note${ids.length === 1 ? "" : "s"}`, { id: toastId });
+      return;
+    }
+
+    // Put back exactly the ones that did not delete.
+    const restored = removed.filter((n) => failed.includes(n.id));
+    setNotes((current) => sortWorkspaceNotes([...restored, ...current]));
+    toast.error(`Could not delete ${failed.length} of ${ids.length} notes`, {
+      id: toastId,
+      description: "They have been restored to the list.",
+      duration: 6000,
+    });
   }
 
   async function handleBulkDuplicate() {
@@ -789,7 +939,7 @@ export function NotesWorkspace({
     if (sources.length === 0) return;
 
     const temps = sources.map((source) =>
-      createTempNote(source.classId, {
+      createTempNote(source.classId ?? fallbackClassId ?? "", {
         title: `${source.title} (copy)`,
         content: source.content,
       }),
@@ -808,7 +958,7 @@ export function NotesWorkspace({
             body: JSON.stringify({
               title: temp.title,
               classId: temp.classId,
-              markdown: source.content.markdown,
+              markdown: currentMarkdownOf(source),
             }),
           });
           const created = await readNoteRecord(response);
@@ -818,16 +968,29 @@ export function NotesWorkspace({
               ...current.filter((n) => n.id !== temp.id),
             ]),
           );
-        } catch {
+        } catch (error) {
           setNotes((current) => current.filter((n) => n.id !== temp.id));
+          toast.error(`Could not duplicate "${source.title}"`, {
+            description: error instanceof Error ? error.message : undefined,
+            duration: 5000,
+          });
         }
       }),
     );
   }
 
-  function handleBulkMove(targetClassId: string | null) {
+  async function handleBulkMove(targetClassId: string) {
     if (sidebarSelectedIds.size === 0) return;
-    const ids = [...sidebarSelectedIds];
+    const ids = [...sidebarSelectedIds].filter((id) => !isTempNote(id));
+    if (ids.length === 0) {
+      clearSidebarSelect();
+      return;
+    }
+
+    // Remember where each note was so a failure can put it back.
+    const previousClassIds = new Map(
+      notes.filter((n) => ids.includes(n.id)).map((n) => [n.id, n.classId]),
+    );
 
     setNotes((current) =>
       current.map((n) =>
@@ -836,11 +999,32 @@ export function NotesWorkspace({
     );
     clearSidebarSelect();
 
-    for (const id of ids) {
-      if (!isTempNote(id)) {
-        void saveNote(id, { classId: targetClassId }).catch(console.error);
-      }
+    const failed = (
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await saveNote(id, { classId: targetClassId });
+            return null;
+          } catch {
+            return id;
+          }
+        }),
+      )
+    ).filter((id): id is string => id !== null);
+
+    if (failed.length === 0) {
+      return;
     }
+
+    setNotes((current) =>
+      current.map((n) =>
+        failed.includes(n.id) ? { ...n, classId: previousClassIds.get(n.id) ?? null } : n,
+      ),
+    );
+    toast.error(`Could not move ${failed.length} of ${ids.length} notes`, {
+      description: "They have been returned to their previous class.",
+      duration: 6000,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -849,9 +1033,9 @@ export function NotesWorkspace({
 
   async function handleContextMenuDuplicate(source: WorkspaceNote) {
     setNoteContextMenu(null);
-    const temp = createTempNote(source.classId, {
+    const temp = createTempNote(source.classId ?? fallbackClassId ?? "", {
       title: `${source.title} (copy)`,
-      content: source.content,
+      content: { ...source.content, markdown: currentMarkdownOf(source) },
     });
     setNotes((current) => sortWorkspaceNotes([temp, ...current]));
     setSelectedId(temp.id);
@@ -863,7 +1047,7 @@ export function NotesWorkspace({
         body: JSON.stringify({
           title: temp.title,
           classId: temp.classId,
-          markdown: source.content.markdown,
+          markdown: currentMarkdownOf(source),
         }),
       });
       const created = await readNoteRecord(response);
@@ -933,15 +1117,6 @@ export function NotesWorkspace({
     return (
       <div
         key={note.id}
-        draggable={!isTemp}
-        onDragStart={(e) => {
-          setDraggedNoteId(note.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => {
-          setDraggedNoteId(null);
-          setDragOverGroupId(null);
-        }}
         onContextMenu={(e) => {
           if (isTemp) return;
           e.preventDefault();
@@ -952,11 +1127,6 @@ export function NotesWorkspace({
         className={cx(
           "group relative flex items-center rounded-md transition",
           isSidebarSelected && "bg-accent-soft",
-          draggedNoteId &&
-            (draggedNoteId === note.id ||
-              (sidebarSelectedIds.has(draggedNoteId) &&
-                sidebarSelectedIds.has(note.id))) &&
-            "opacity-40",
         )}
       >
         {/* Selection checkbox */}
@@ -1046,7 +1216,7 @@ export function NotesWorkspace({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,image/png,image/jpeg,image/webp,image/gif"
+        accept=".pdf,image/png,image/jpeg,image/webp,image/heic,image/heif"
         className="hidden"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
@@ -1127,155 +1297,170 @@ export function NotesWorkspace({
             </button> */}
           </div>
 
+          {/* Which class these notes belong to, and the way back out */}
+          <Link
+            href="/notes"
+            className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground transition hover:bg-surface hover:text-foreground"
+            title="Choose a different class"
+          >
+            <Folder className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+              {activeClass ? getClassLabel(activeClass) : "Notes"}
+            </span>
+            <span className="shrink-0">Change</span>
+          </Link>
+
+          {/* Search */}
+          <div className="border-b border-border px-3 py-2">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setSearchQuery("");
+                }}
+                placeholder="Search notes"
+                aria-label="Search notes"
+                className="h-8 w-full rounded-md border border-border bg-surface pl-7 pr-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-border-strong"
+              />
+            </div>
+          </div>
+
           {/* Note list */}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3">
-            {recentNotes.length > 0 ? (
-              <section className="mb-5">
+            {isSearching ? (
+              <section className="space-y-1">
                 <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-                  Recents
+                  {searchResults.length === 0
+                    ? "No matches"
+                    : `${searchResults.length} match${searchResults.length === 1 ? "" : "es"}`}
                 </div>
                 <div className="space-y-0.5">
-                  {recentNotes.map((note) =>
-                    renderNoteItem(note, { compact: true }),
-                  )}
+                  {searchResults.map((match) => (
+                    <button
+                      key={match.note.id}
+                      type="button"
+                      onClick={() => setSelectedId(match.note.id)}
+                      className={cx(
+                        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition",
+                        selectedNote?.id === match.note.id
+                          ? "bg-surface text-foreground"
+                          : "text-muted-foreground hover:bg-surface hover:text-foreground",
+                      )}
+                    >
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {getRenderableTitle(match.note.title)}
+                      </span>
+                      {match.snippet ? (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {match.snippetMatch ? (
+                            <>
+                              {match.snippet.slice(0, match.snippetMatch.start)}
+                              <mark className="rounded-[0.2em] bg-accent-soft px-0.5 text-foreground">
+                                {match.snippet.slice(
+                                  match.snippetMatch.start,
+                                  match.snippetMatch.start + match.snippetMatch.length,
+                                )}
+                              </mark>
+                              {match.snippet.slice(
+                                match.snippetMatch.start + match.snippetMatch.length,
+                              )}
+                            </>
+                          ) : (
+                            match.snippet
+                          )}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
                 </div>
               </section>
-            ) : null}
-
+            ) : (
+              <>
             <section className="space-y-1">
               <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-                Private
+                {activeClass ? getClassShortLabel(activeClass) : "Notes"}
               </div>
-              {groupedNotes.map((group) => {
-                const isCollapsed = collapsedGroups.has(group.id);
-                const isDragTarget =
-                  dragOverGroupId === group.id && draggedNoteId !== null;
-                const draggedNote = draggedNoteId
-                  ? notes.find((n) => n.id === draggedNoteId)
-                  : null;
-                // When dragging a selected note, at least one selected note must
-                // differ from this group's class for the drop to be meaningful.
-                const canDrop =
-                  draggedNote &&
-                  (() => {
-                    const id = draggedNoteId!;
-                    if (
-                      sidebarSelectedIds.has(id) &&
-                      sidebarSelectedIds.size > 1
-                    ) {
-                      return notes.some(
-                        (n) =>
-                          sidebarSelectedIds.has(n.id) &&
-                          n.classId !== group.classId,
-                      );
-                    }
-                    return draggedNote.classId !== group.classId;
-                  })();
-
-                return (
-                  <div
-                    key={group.id}
-                    onDragOver={(e) => {
-                      if (!canDrop) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDragOverGroupId(group.id);
-                    }}
-                    onDragEnter={(e) => {
-                      if (!canDrop) return;
-                      e.preventDefault();
-                      setDragOverGroupId(group.id);
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setDragOverGroupId(null);
-                      }
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setDragOverGroupId(null);
-                      if (draggedNoteId && canDrop) {
-                        // If the dragged note is part of the sidebar selection,
-                        // move all selected notes. Otherwise just move the one.
-                        if (
-                          sidebarSelectedIds.has(draggedNoteId) &&
-                          sidebarSelectedIds.size > 1
-                        ) {
-                          handleBulkMove(group.classId);
-                        } else {
-                          handleNoteDrop(group.classId, draggedNoteId);
-                        }
-                      }
-                      setDraggedNoteId(null);
-                    }}
-                    className={cx(
-                      "rounded-lg transition-colors",
-                      isDragTarget && canDrop
-                        ? "bg-accent-soft ring-1 ring-accent/30"
-                        : "",
-                    )}
-                  >
-                    <div className="group flex items-center gap-1 rounded-md text-muted-foreground hover:bg-surface hover:text-foreground">
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group.id)}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
-                        aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.title}`}
-                      >
-                        {isCollapsed ? (
-                          <ChevronRight
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <ChevronDown
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group.id)}
-                        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-sm font-medium"
-                      >
-                        <Folder
-                          className="h-4 w-4 shrink-0 opacity-70"
-                          aria-hidden="true"
-                        />
-                        <span className="truncate" title={group.title}>
-                          {group.shortTitle}
-                        </span>
-                        <span className="ml-auto pr-1 text-[11px] text-muted-foreground">
-                          {group.notes.length}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleCreateNote(group.classId)}
-                        disabled={isPending}
-                        className="mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-0 hover:bg-surface-elevated group-hover:opacity-100 disabled:opacity-40"
-                        aria-label={`New note in ${group.title}`}
-                      >
-                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                      </button>
-                    </div>
-
-                    {!isCollapsed && group.notes.length > 0 ? (
-                      <div className="ml-3 space-y-0.5 border-l border-border/70 pl-1">
-                        {group.notes.map((note) => renderNoteItem(note))}
-                      </div>
-                    ) : null}
-
-                    {isDragTarget && canDrop ? (
-                      <div className="mx-2 mb-1 rounded-md border border-dashed border-accent/50 bg-accent/5 px-2 py-1.5 text-center text-xs text-accent">
-                        Drop to move here
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+              <div className="space-y-0.5">
+                {notes.length === 0 ? (
+                  <p className="px-2 py-1 text-xs text-muted-foreground">
+                    No notes in this class yet.
+                  </p>
+                ) : (
+                  notes.map((note) => renderNoteItem(note))
+                )}
+              </div>
             </section>
+
+                {/* Trash */}
+                <section className="mt-5 border-t border-border pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isTrashOpen;
+                      setIsTrashOpen(next);
+                      if (next && trashedNotes === null) void loadTrash();
+                    }}
+                    aria-expanded={isTrashOpen}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span className="flex-1 text-left">Trash</span>
+                    {trashedNotes ? <span>{trashedNotes.length}</span> : null}
+                  </button>
+
+                  {isTrashOpen ? (
+                    <div className="mt-1 space-y-0.5">
+                      {trashedNotes === null ? (
+                        <p className="px-2 py-1 text-xs text-muted-foreground">Loading…</p>
+                      ) : trashedNotes.length === 0 ? (
+                        <p className="px-2 py-1 text-xs text-muted-foreground">Nothing deleted.</p>
+                      ) : (
+                        trashedNotes.map((trashed) => (
+                          <div
+                            key={trashed.id}
+                            className="group flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground"
+                          >
+                            <span className="min-w-0 flex-1 truncate">
+                              {getRenderableTitle(trashed.title)}
+                            </span>
+                            <select
+                              aria-label={`Restore "${getRenderableTitle(trashed.title)}" into a class`}
+                              value=""
+                              onChange={(event) => {
+                                const classId = event.currentTarget.value;
+                                if (classId) void handleRestoreNote(trashed, classId);
+                              }}
+                              disabled={classes.length === 0}
+                              className="shrink-0 rounded border border-border bg-surface px-1 py-0.5 text-xs text-muted-foreground opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-40"
+                            >
+                              <option value="">Restore to…</option>
+                              {classes.map((cls) => (
+                                <option key={cls.id} value={cls.id}>
+                                  {getClassShortLabel(cls)}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteForever(trashed)}
+                              className="shrink-0 rounded px-1.5 py-0.5 text-xs opacity-0 transition hover:bg-danger-soft hover:text-danger group-hover:opacity-100 focus-visible:opacity-100"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </section>
+              </>
+            )}
           </div>
 
           {/* Bulk selection action bar */}
@@ -1317,22 +1502,11 @@ export function NotesWorkspace({
                   </button>
                   {isBulkMoveOpen ? (
                     <div className="absolute bottom-full left-0 mb-1 w-full overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-[var(--shadow-card)]">
-                      <button
-                        type="button"
-                        onClick={() => handleBulkMove(null)}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                      >
-                        <Folder
-                          className="h-3.5 w-3.5 shrink-0 opacity-60"
-                          aria-hidden="true"
-                        />
-                        Unfiled
-                      </button>
                       {classes.map((cls) => (
                         <button
                           key={cls.id}
                           type="button"
-                          onClick={() => handleBulkMove(cls.id)}
+                          onClick={() => void handleBulkMove(cls.id)}
                           title={getClassLabel(cls)}
                           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                         >
@@ -1402,6 +1576,15 @@ export function NotesWorkspace({
                   </button>
                   <button
                     type="button"
+                    onClick={handleExportNote}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                    aria-label="Download note as Markdown"
+                    title="Download as Markdown"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleDuplicateNote()}
                     disabled={isPending || isTempNote(selectedNote.id)}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground disabled:opacity-60"
@@ -1452,6 +1635,7 @@ export function NotesWorkspace({
                 </div>
 
                 <NoteEditor
+                  handleRef={noteEditorRef}
                   className="mx-auto w-full px-4 pb-10 pt-6 md:px-10"
                   noteId={selectedNote.id}
                   initialMarkdown={selectedNote.content.markdown}
@@ -1462,23 +1646,45 @@ export function NotesWorkspace({
             </div>
           ) : (
             <div className="relative z-10 flex h-full min-h-0 items-center justify-center p-6">
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  onClick={() => handleCreateNote(fallbackClassId)}
-                  disabled={isPending}
-                >
-                  New page
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsUploadModalOpen(true)}
-                  disabled={isPending}
-                >
-                  Import
-                </Button>
-              </div>
+              {classes.length === 0 ? (
+                // Notes live inside a class, so with none there is nothing to
+                // create into. Offering a button that can only fail is worse
+                // than saying where to go.
+                <div className="flex max-w-sm flex-col items-center text-center">
+                  <Folder className="mb-4 size-10 text-muted-foreground" aria-hidden="true" />
+                  <h2 className="text-lg font-semibold text-foreground">No classes yet</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Notes are filed under a class. Add one and its notes will live there.
+                  </p>
+                  <Link
+                    href="/classes"
+                    className={cx(
+                      "mt-4 inline-flex h-10 items-center rounded-[var(--radius-lg)] px-4 text-sm font-medium",
+                      "bg-accent text-accent-foreground hover:opacity-90",
+                    )}
+                  >
+                    Go to classes
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => handleCreateNote(fallbackClassId)}
+                    disabled={isPending}
+                  >
+                    New page
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsUploadModalOpen(true)}
+                    disabled={isPending}
+                  >
+                    Import
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </section>

@@ -1,5 +1,10 @@
 import { parseMarkdownToNoteDocument, serializeNoteDocumentToMarkdown } from "@/lib/notes/markdown";
+import {
+  ContentTooLargeError,
+  MAX_NOTE_MARKDOWN_CHARS,
+} from "@/lib/notes/limits";
 import { normalizeMarkdownMath } from "@/lib/notes/math-ranges";
+import { sanitizeStoredText } from "@/lib/notes/sanitize";
 import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { emptyNoteDocument, NoteDocumentSchema, type NoteDocument } from "@/lib/notes/types";
 
@@ -35,7 +40,15 @@ export function normalizeNoteWriteMarkdown(value: unknown): NormalizedNoteWriteC
     throw new Error("Note markdown must be a string.");
   }
 
-  const markdown = normalizeMarkdownMath(value.replace(/\r\n?/g, "\n"));
+  // Checked before any parsing: everything below this is linear in the input, so
+  // an unbounded string is work that has already been done by the time it fails.
+  if (value.length > MAX_NOTE_MARKDOWN_CHARS) {
+    throw new ContentTooLargeError(
+      `Note is ${value.length} characters; the maximum is ${MAX_NOTE_MARKDOWN_CHARS}.`,
+    );
+  }
+
+  const markdown = normalizeMarkdownMath(sanitizeStoredText(value).replace(/\r\n?/g, "\n"));
 
   return {
     document: parseMarkdownToNoteDocument(markdown),

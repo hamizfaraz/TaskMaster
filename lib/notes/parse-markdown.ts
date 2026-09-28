@@ -23,7 +23,6 @@ import type {
 } from "@/lib/notes/types";
 import { normalizeLatex } from "@/lib/math/latex";
 import { isInlineMathCandidate } from "@/lib/notes/math-ranges";
-import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,11 +43,39 @@ function escapeHtmlText(value: string) {
     .replace(/>/g, "&gt;");
 }
 
+/**
+ * Placeholder delimiters for stashed inline spans.
+ *
+ * Private-use characters rather than NUL, which is what these were: a
+ * placeholder that escaped restoration reached Postgres as `\u0000` and failed
+ * the insert with `22P05 unsupported Unicode escape sequence`, losing a whole
+ * generated upload. A leaked private-use character is still a bug, but it is a
+ * storable one that shows up in the text instead of destroying the write.
+ */
+const TOKEN_OPEN = "\uE002";
+const TOKEN_CLOSE = "\uE003";
+
+function inlineToken(index: number) {
+  return `${TOKEN_OPEN}${index}${TOKEN_CLOSE}`;
+}
+
+/**
+ * Expand stashed spans, highest index first.
+ *
+ * Order matters. A stashed span can contain a placeholder stashed earlier — a
+ * math span whose LaTeX holds a backslash escape, for instance — and a token
+ * only ever references indices below its own. Ascending order expanded the
+ * inner escape before the span that contained it, so the inner placeholder was
+ * never substituted: `$y[n] = T\_1$` kept a raw delimiter in its `data-latex`.
+ * Descending order restores the outer span first, which puts the inner
+ * placeholder back into the string while its own turn is still to come.
+ */
 function restoreInlineTokens(value: string, tokens: string[]) {
-  return tokens.reduce(
-    (current, token, index) => current.replaceAll(`\u0000${index}\u0000`, token),
-    value,
-  );
+  let current = value;
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    current = current.replaceAll(inlineToken(index), tokens[index]);
+  }
+  return current;
 }
 
 /**
@@ -77,12 +104,20 @@ function processInlineMath(line: string): string {
 export function renderInlineMarkdownText(line: string): string {
   const tokens: string[] = [];
   const stash = (html: string) => {
-    const token = `\u0000${tokens.length}\u0000`;
+    const token = inlineToken(tokens.length);
     tokens.push(html);
     return token;
   };
 
-  const withCodeTokens = line.replace(/`([^`\r\n]+?)`/g, (_match, code: string) =>
+  // Backslash escapes first: `\*` is a literal asterisk and must not take part
+  // in emphasis matching, or `\*\*Author:\*\*` becomes `\<em>\</em>Author:`
+  // and Turndown then re-escapes the stray backslashes on every save, doubling
+  // them each time.
+  const withEscapeTokens = line.replace(
+    /\\[\\`*_{}[\]()#+\-.!|~]/g,
+    (match) => stash(escapeHtmlText(match)),
+  );
+  const withCodeTokens = withEscapeTokens.replace(/`([^`\r\n]+?)`/g, (_match, code: string) =>
     stash(`<code>${escapeHtmlText(code)}</code>`),
   );
   const withMathTokens = processInlineMath(withCodeTokens).replace(
@@ -352,5 +387,11 @@ export function parseMarkdownToNoteDocument(markdown: string): NoteDocument {
     }
   }
 
-  return normalizeNoteLatexRegions({ time: Date.now(), blocks });
+  // The markdown path must NOT run the legacy LaTeX region detector. That
+  // detector exists for the block path, where rich text could contain
+  // *undelimited* LaTeX. Here math already arrives delimited as `$…$` / `$$…$$`
+  // and has been wrapped by `renderInlineMarkdownText`. Running it anyway
+  // flattened the rich text (destroying every bold on a line that also held
+  // math) and promoted ordinary prose into display-math blocks.
+  return { time: Date.now(), blocks };
 }

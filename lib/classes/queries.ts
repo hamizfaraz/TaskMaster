@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { note, parseTestCourse, parseTestEvent, parseTestRun } from "@/lib/db/schema";
 import { isClassArchived } from "./archive-marker";
@@ -48,7 +48,7 @@ export async function listUserClasses(userId: string): Promise<UserClassSummary[
       classId: note.classId,
     })
     .from(note)
-    .where(eq(note.userId, userId));
+    .where(and(eq(note.userId, userId), isNull(note.deletedAt)));
 
   const noteCounts = new Map<string, number>();
   for (const row of noteRows) {

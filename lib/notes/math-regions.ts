@@ -50,9 +50,33 @@ function richTextToPlainText(value: string) {
   ).replace(/\n{3,}/g, "\n\n");
 }
 
+/** Structural markers that mean the line is prose, whatever else it contains. */
+const NON_MATH_LINE_RE = /^(?:[-*+]\s|\d+\.\s|>|#)/;
+
+/** Delimited math, which is already unambiguous and needs no promotion. */
+const DELIMITED_MATH_RE = /\$\$[\s\S]*?\$\$|\$[^$\n]*\$|\\\(.*?\\\)|\\\[.*?\\\]/g;
+
+/**
+ * Is the whole line raw, undelimited LaTeX?
+ *
+ * This exists for the block path, where rich text could hold LaTeX with no `$`
+ * around it. It has to be strict: a previous version promoted any line under
+ * 240 characters that held one of `= + - * / ^ _ < >` and three or fewer
+ * longish words, which swallowed list items carrying inline math, an
+ * author/ISBN line, `==highlight==`, and `In C, a == b tests equality.` — each
+ * of which was then re-serialized as a display-math block, destroying the text.
+ *
+ * A line qualifies only when it is not structurally prose, carries no code
+ * span, has nothing word-like outside its math, and shows real evidence of
+ * LaTeX rather than a stray ASCII operator.
+ */
 function isStandaloneLatexLine(value: string) {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 240 || !LATEX_SIGNAL_RE.test(trimmed)) {
+    return false;
+  }
+
+  if (NON_MATH_LINE_RE.test(trimmed) || trimmed.includes("`")) {
     return false;
   }
 
@@ -60,10 +84,21 @@ function isStandaloneLatexLine(value: string) {
     return true;
   }
 
-  const wordCount = (trimmed.match(/[A-Za-z]{3,}/g) ?? []).length;
-  const operatorCount = (trimmed.match(/[=+\-*/^_<>≤≥≠≈]/g) ?? []).length;
+  // Prose that merely *contains* math is prose. Ignore LaTeX command names
+  // when looking for words, so `\nabla f = 0` is not mistaken for a sentence.
+  const outsideMath = trimmed.replace(DELIMITED_MATH_RE, " ").replace(/\\[A-Za-z]+/g, " ");
+  if (/[A-Za-z]{2,}/.test(outsideMath)) {
+    return false;
+  }
 
-  return operatorCount > 0 && wordCount <= 3;
+  const hasCommand = /\\[A-Za-z]+/.test(trimmed);
+  const hasMathSymbol = /[≤≥≠≈±×÷∞√∑∫→⇒∈∉∂∇∆αβγδθλμσπΩ]/.test(trimmed);
+  const hasScript = /[\^_]\{?[A-Za-z0-9]/.test(trimmed);
+  if (!hasCommand && !hasMathSymbol && !hasScript) {
+    return false;
+  }
+
+  return (trimmed.match(/[A-Za-z]{3,}/g) ?? []).length <= 3;
 }
 
 function pushTextSegment(segments: RegionSegment[], value: string) {

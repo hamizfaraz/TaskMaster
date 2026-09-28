@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
+import {
+  parseMarkdownToNoteDocument,
+  renderInlineMarkdownText,
+} from "@/lib/notes/parse-markdown";
 
 describe("parseMarkdownToNoteDocument", () => {
   it("maps Mermaid fences to Mermaid note blocks", () => {
@@ -102,5 +105,45 @@ describe("parseMarkdownToNoteDocument", () => {
         },
       },
     ]);
+  });
+});
+
+describe("nested inline tokens", () => {
+  // Regression: the renderer stashes backslash escapes, code spans and math
+  // spans behind placeholders, and a math span can contain an escape that was
+  // stashed first. Restoring in ascending index order expanded the escape
+  // before the span that held it, so the inner placeholder was never restored.
+  // It reached Postgres as a NUL and failed the insert with 22P05 — and had it
+  // been stripped instead, `T\_1` would have been stored as `T01`.
+  const nested = [
+    "$y[n] = T\\_1$",
+    "inline $a \\_ b$ math",
+    "$x \\* y$",
+    "code `a` then $T\\_1$",
+    "$y[n] = T\\{1\\}$",
+  ];
+
+  it("leaves no placeholder delimiter in the output", () => {
+    for (const line of nested) {
+      const html = renderInlineMarkdownText(line);
+      expect(html, line).not.toMatch(/[\u0000\uE000-\uE00F]/);
+    }
+  });
+
+  it("restores the escape inside the math span instead of losing it", () => {
+    const html = renderInlineMarkdownText("$y[n] = T\\_1$");
+    expect(html).toContain('data-latex="y[n] = T\\_1"');
+    expect(html).toContain("$y[n] = T\\_1$");
+  });
+
+  it("restores several escapes nested in one span", () => {
+    const html = renderInlineMarkdownText("$y[n] = T\\{1\\}$");
+    expect(html).toContain('data-latex="y[n] = T\\{1\\}"');
+  });
+
+  it("keeps a code span and a math span independent", () => {
+    const html = renderInlineMarkdownText("code `a` then $T\\_1$");
+    expect(html).toContain("<code>a</code>");
+    expect(html).toContain('data-latex="T\\_1"');
   });
 });

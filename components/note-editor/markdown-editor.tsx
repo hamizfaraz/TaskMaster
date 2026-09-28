@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { Completion } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
@@ -16,11 +17,22 @@ import {
 import { imageDrop, type ImageUploader } from "@/components/note-editor/extensions/image-drop";
 import { livePreview } from "@/components/note-editor/extensions/live-preview";
 import { mathWidgets } from "@/components/note-editor/extensions/math-widgets";
+import { tableWidgets } from "@/components/note-editor/extensions/table-widgets";
 import { applyBlockCommand, slashMenu } from "@/components/note-editor/extensions/slash-menu";
-import { editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
+import { codeHighlight, editorTheme, markdownHighlight } from "@/components/note-editor/extensions/theme";
+import { inlineFormatKeymap } from "@/components/note-editor/extensions/inline-format";
+import { moveBlockKeymap } from "@/components/note-editor/extensions/move-block";
+import {
+  highlightSuggestions,
+  setAgentSuggestions,
+  type ExternalSuggestion,
+} from "@/components/note-editor/extensions/highlight-suggestions";
 
 function previewExtensions(sourceMode: boolean) {
-  return sourceMode ? [] : [livePreview(), mathWidgets()];
+  // Table widgets come after live preview: both touch table lines, and the
+  // block-level replace wins over the per-line monospace class, which is what
+  // should happen when the table is rendered as a grid.
+  return sourceMode ? [] : [livePreview(), mathWidgets(), tableWidgets()];
 }
 
 /** What React-side controls (the "+ Block" button) may ask the editor to do. */
@@ -28,6 +40,8 @@ export type MarkdownEditorHandle = {
   focus(): void;
   /** Insert a block command at the cursor — the same commands the `/` menu offers. */
   applyCommand(command: Completion): void;
+  /** Show the agent's proposed key points. Pass an empty array to clear them. */
+  showAgentSuggestions(suggestions: ExternalSuggestion[]): void;
 };
 
 /** Where the cursor's line sits, relative to the editor host's top edge. */
@@ -59,6 +73,8 @@ export type MarkdownEditorProps = {
   readOnly?: boolean;
   /** Show raw Markdown everywhere instead of live preview. */
   sourceMode?: boolean;
+  /** Underline the points the text suggests are worth highlighting. */
+  showSuggestions?: boolean;
   /** Handles dropped/pasted image files; defaults to an inline data URL. */
   uploadImage?: ImageUploader;
   placeholder?: string;
@@ -77,6 +93,7 @@ export default function MarkdownEditor({
   onChange,
   readOnly = false,
   sourceMode = false,
+  showSuggestions = false,
   uploadImage,
   placeholder = "Start writing…",
   autoFocus = false,
@@ -88,6 +105,7 @@ export default function MarkdownEditor({
   const readOnlyCompartment = useRef(new Compartment()).current;
   const previewCompartment = useRef(new Compartment()).current;
   const uploadCompartment = useRef(new Compartment()).current;
+  const suggestionCompartment = useRef(new Compartment()).current;
   const onActiveLineChangeRef = useRef(onActiveLineChange);
   const lastActiveLineKeyRef = useRef("");
   onChangeRef.current = onChange;
@@ -134,6 +152,9 @@ export default function MarkdownEditor({
           applyBlockCommand(view, command);
         }
       },
+      showAgentSuggestions(suggestions) {
+        viewRef.current?.dispatch({ effects: setAgentSuggestions.of(suggestions) });
+      },
     }),
     [],
   );
@@ -155,13 +176,24 @@ export default function MarkdownEditor({
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           markdownHighlight,
+          codeHighlight,
           editorTheme,
           placeholderExtension(placeholder),
           slashMenu(),
           uploadCompartment.of(imageDrop(uploadImage)),
           previewCompartment.of(previewExtensions(sourceMode)),
+          suggestionCompartment.of(highlightSuggestions(showSuggestions)),
           readOnlyCompartment.of(EditorState.readOnly.of(readOnly)),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // Ahead of defaultKeymap so Mod-i reaches italics rather than
+          // selectParentSyntax.
+          // Find and replace inside a note. `top: true` keeps the panel out of
+          // the way of the gutter control, which sits at the bottom left.
+          search({ top: true }),
+          highlightSelectionMatches(),
+          inlineFormatKeymap(),
+          // Ahead of defaultKeymap, which moves a single line.
+          moveBlockKeymap(),
+          keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((update) => {
             if (
               update.docChanged &&
@@ -230,6 +262,12 @@ export default function MarkdownEditor({
       effects: uploadCompartment.reconfigure(imageDrop(uploadImage)),
     });
   }, [uploadImage, uploadCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: suggestionCompartment.reconfigure(highlightSuggestions(showSuggestions)),
+    });
+  }, [showSuggestions, suggestionCompartment]);
 
   return <div ref={hostRef} className={className} data-testid="markdown-editor" />;
 }

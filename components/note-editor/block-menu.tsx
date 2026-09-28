@@ -7,6 +7,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Highlighter,
   Image as ImageIcon,
   List,
   ListChecks,
@@ -37,6 +38,7 @@ const ICONS: Record<string, LucideIcon> = {
   divider: Minus,
   math: Sigma,
   "inline-math": Sigma,
+  highlight: Highlighter,
 };
 
 /** Diameter of the gutter button, used to centre it on the line. */

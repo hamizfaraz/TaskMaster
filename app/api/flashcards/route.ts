@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { flashcards } from "@/lib/db/schema";
 import { createDraftFlashcardDeck, editableDeckSchema, rowToFlashcardDeck } from "@/lib/flashcards/decks";
-import { getFlashcardContextNotes } from "@/lib/flashcards/context";
+import { getNoteContext } from "@/lib/notes/context";
 import { generateFlashcardDeck } from "@/lib/flashcards/gemini";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ async function requireSession() {
 
 async function generateDeckPreview(params: { userId: string; noteIds: string[]; cardCount: number }) {
   const uniqueNoteIds = Array.from(new Set(params.noteIds));
-  const contextNotes = await getFlashcardContextNotes({
+  const contextNotes = await getNoteContext({
     userId: params.userId,
     noteIds: uniqueNoteIds,
   });
