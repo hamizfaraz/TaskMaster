@@ -55,6 +55,9 @@ function createContextPrompt(notes: FlashcardContextNote[]) {
         `NOTE ${index + 1}: ${note.title}`,
         `Stored embedding vector (${note.embedding.length} dimensions):`,
         JSON.stringify(summarizeEmbedding(note.embedding)),
+        note.highlights.length > 0
+          ? `Student-highlighted passages (treat as the most important material in this note):\n${note.highlights.map((highlight) => `- ${highlight}`).join("\n")}`
+          : "The student highlighted nothing in this note.",
         "Markdown content:",
         note.markdown || "(No readable note body was stored for this note.)",
       ].join("\n"),
@@ -82,6 +85,7 @@ export async function generateFlashcardDeck(params: {
               "Create a flashcard deck from the supplied notes.",
               "Use every selected note's stored embedding vector as semantic context, and use the note markdown as factual evidence.",
               "Focus on important points, definitions, equations, formulas, processes, comparisons, common mistakes, examples, and likely study targets.",
+              "When a note lists student-highlighted passages, cover every one of them before drawing on the surrounding prose: the student marked those as what matters most.",
               "Each card must have a clear front prompt and a complete back answer.",
               "Prefer cards that require recall, not simple recognition. Keep cards atomic: one main fact, relationship, equation, or reasoning step per card.",
               "If the notes contain equations, preserve the relevant notation in Markdown/LaTeX.",

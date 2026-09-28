@@ -1,4 +1,5 @@
 import { createNoteContent } from "@/lib/notes/markdown";
+import { normalizeNoteLatexRegions } from "@/lib/notes/math-regions";
 import { renderInlineMarkdownText } from "@/lib/notes/parse-markdown";
 import {
   emptyNoteDocument,
@@ -77,9 +78,11 @@ export function normalizeNoteDocument(
     return createEmptyDocument();
   }
 
-  return options?.normalizeInlineMarkdown
+  const normalized = options?.normalizeInlineMarkdown
     ? normalizeInlineMarkdownInDocument(parsed.data)
     : parsed.data;
+
+  return normalizeNoteLatexRegions(normalized);
 }
 
 function looksLikePlainInlineMarkdown(value: string) {
@@ -208,7 +211,14 @@ export function noteRecordToWorkspaceNote(record: NoteRecord): WorkspaceNote {
   });
   const embedding = normalizeEmbedding(record.embedding);
   const content = createNoteContent(document);
-  const markdown = typeof record.markdown === "string" ? record.markdown : content.markdown;
+  // The markdown column is canonical. Only fall back to serializing the block
+  // cache when the column is absent, or empty while blocks exist (a row that
+  // predates markdown-on-write would otherwise render as an empty note).
+  const markdown =
+    typeof record.markdown === "string" &&
+    (record.markdown.length > 0 || document.blocks.length === 0)
+      ? record.markdown
+      : content.markdown;
 
   return {
     id: record.id,
@@ -233,4 +243,9 @@ export function sortWorkspaceNotes(notes: WorkspaceNote[]) {
   return [...notes].sort(
     (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
   );
+}
+
+/** Notes created optimistically on the client carry a `temp-` id until the server responds. */
+export function isTempNoteId(id: string) {
+  return id.startsWith("temp-");
 }

@@ -1,3 +1,4 @@
+import type { NoteContext } from "@/lib/notes/context";
 export type FlashcardItem = {
   id: string;
   front: string;
@@ -16,9 +17,5 @@ export type FlashcardDeck = {
   updatedAt: string;
 };
 
-export type FlashcardContextNote = {
-  id: string;
-  title: string;
-  markdown: string;
-  embedding: number[];
-};
+/** @deprecated Use `NoteContext` from `@/lib/notes/context`. */
+export type FlashcardContextNote = NoteContext;
