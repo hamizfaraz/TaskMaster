@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { parseMarkdownToNoteDocument } from "@/lib/notes/markdown";
 import { chunkNoteDocument } from "@/lib/rag/chunking";
 import type { NoteDocument, NoteListItem } from "@/lib/notes/types";
 
@@ -255,5 +256,51 @@ describe("chunkNoteDocument", () => {
       "second block",
       "third block",
     ]);
+  });
+});
+
+describe("chunk content fidelity", () => {
+  /**
+   * Chunks feed embeddings and generation, so the text in them has to be the
+   * text in the note. These go through the real pipeline — markdown is canonical
+   * and the block document is derived from it — rather than hand-built blocks,
+   * because the defect this guards against only appeared once inline math had
+   * been turned into the span the parser emits.
+   */
+  const markdown = [
+    "# Union-Find",
+    "",
+    "Union by size keeps depth below $\\log N$, so find is $O(\\log n)$.",
+    "",
+    "The amortized cost is $O(m \\, \\alpha(n))$ with $\\alpha(n) \\leq 4$.",
+    "",
+    "A literal star \\* stays a star.",
+  ].join("\n");
+
+  const chunked = () =>
+    chunkNoteDocument(parseMarkdownToNoteDocument(markdown), { noteId: "note-1" })
+      .map((chunk) => chunk.content)
+      .join("\n");
+
+  it("does not double the backslashes in inline math", () => {
+    // A local Turndown instance escaped them, turning $\log N$ into $\\log N$ and
+    // compounding on every pass. The shared converter guards against it.
+    expect(chunked()).not.toContain("\\\\");
+  });
+
+  it("keeps each formula exactly as the note has it", () => {
+    const content = chunked();
+    expect(content).toContain("$\\log N$");
+    expect(content).toContain("$O(\\log n)$");
+    expect(content).toContain("$O(m \\, \\alpha(n))$");
+    expect(content).toContain("$\\alpha(n) \\leq 4$");
+  });
+
+  it("keeps an authored backslash escape as a single escape", () => {
+    expect(chunked()).toContain("\\*");
+  });
+
+  it("carries the heading into the chunk", () => {
+    expect(chunked()).toContain("# Union-Find");
   });
 });

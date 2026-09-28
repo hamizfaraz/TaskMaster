@@ -1,19 +1,7 @@
-import TurndownService from "turndown";
-import { gfm } from "turndown-plugin-gfm";
+import { htmlToMarkdown } from "@/lib/notes/markdown";
 import type { NoteBlock, NoteDocument, NoteListBlockData, NoteListItem } from "@/lib/notes/types";
 
 const DEFAULT_MAX_TOKENS = 700;
-
-const turndown = new TurndownService({
-  bulletListMarker: "-",
-  codeBlockStyle: "fenced",
-  emDelimiter: "*",
-  headingStyle: "atx",
-  linkStyle: "inlined",
-  strongDelimiter: "**",
-});
-
-turndown.use(gfm);
 
 export type ChunkHeading = {
   level: 1 | 2 | 3;
@@ -62,19 +50,6 @@ const emptyPendingChunk = (): PendingChunk => ({
 
 function defaultCountTokens(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function htmlToMarkdown(value: string) {
-  const normalized = value.replace(/\n{3,}/g, "\n\n").trim();
-
-  if (!/<\/?[a-z][\s\S]*>/i.test(normalized) && !/&[a-z#0-9]+;/i.test(normalized)) {
-    return normalized;
-  }
-
-  return turndown
-    .turndown(normalized)
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function htmlToPlainText(value: string) {

@@ -57,7 +57,15 @@ export function decodeHtmlAttribute(value: string) {
     .replace(/&amp;/g, "&");
 }
 
-function htmlToMarkdown(value: string) {
+/**
+ * Rich text (or already-authored markdown) to markdown.
+ *
+ * Exported because anything that turns a block document back into markdown has
+ * to come through here. A second Turndown instance without the guards below lets
+ * the converter escape LaTeX backslashes, so `$\log N$` becomes `$\\log N$`, and
+ * the doubling compounds every time the text passes through again.
+ */
+export function htmlToMarkdown(value: string) {
   const normalized = value.replace(/\n{3,}/g, "\n\n").trim();
 
   // Treat non-HTML strings as already-authored markdown/plain text so block
