@@ -3,7 +3,8 @@
 > **Status: §1 and §2 are done.** Restore takes a class, a user with no classes
 > gets a way forward instead of a failing button, `createTempNote` enforces the
 > invariant in the type system, and `Alt+↑/↓` moves whole blocks. §3 is
-> untouched, with **#88** still the next thing worth doing.
+> untouched. **#88 is no longer the next thing worth doing** — most of it landed
+> with the class requirement; see the corrected §3.
 
 Written after making notes class-mandatory, which fixed one thing and broke
 another. Ordered by what is actually broken, then what was promised, then what
@@ -60,12 +61,12 @@ to CodeMirror's line move for ordinary prose.
 
 | Item | Why it sits here |
 |---|---|
-| **#88** class association on upload | Now the highest-value work by some distance. Notes *must* have a class, so an upload that cannot assign one is a wall, not an inconvenience. It is also what stranded the 49 notes in the first place. |
+| **#88** class association on upload | **Mostly done.** The upload route requires a `classId` and verifies ownership, and `/notes` routes through a class picker, so nothing can be filed unfiled. What remains is an upload entry point on the class page — a button and a handler. |
 | Read-only view and print | Small. The renderer exists and handles highlights; it needs a route and a print stylesheet. |
 | Sorting and pinning | Small. Fixed newest-first is the only order today. |
 | Tables as a grid | Medium, cosmetic. Tables round-trip correctly already. |
 | #86 images to blob storage | Blocked on you choosing a provider. Latent: no note contains an inline image today. |
-| #57 / #87 retrieval | Large, and worth starting only after #88 populates class links. |
+| #57 / #87 retrieval | Large, and now the keystone: #60 merged the chunker and nothing imports it, while six issues (#69, #72, #73, #74, #80, #87) wait on chunk-level retrieval. This is the next real build. |
 | #7 multi-topic split | A separate feature sharing an issue with highlighting. |
 
 **Not mine:** pull requests #62 and #63 now conflict with develop and have been
@@ -79,7 +80,8 @@ way. Rebasing them later costs more than rebasing them now.
 1. **A1**, because live data is currently unreachable.
 2. **A2** and **A3**, which are small and in the same files.
 3. **B1**, the commitment.
-4. Then **#88**, as its own piece of work.
+4. Then **#57 Phase 2** — wire the chunker that #60 landed. #88's remainder is a
+   small filler whenever one is wanted.
 
-Everything below #88 stays deliberately unstarted: none of it blocks use, and
-#88 changes the value of the retrieval items beneath it.
+The original plan put everything behind #88 because #88 would populate class
+links. It has, so that gate is gone and retrieval is what unblocks the most.
