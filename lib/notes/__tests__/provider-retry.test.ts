@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withProviderRetry } from "@/lib/notes/generation";
+import { hasTimeFor, remainingMs, withDeadline } from "@/lib/notes/deadline";
 
 function providerError(status: number, message: string) {
   return Object.assign(new Error(message), { status });
@@ -87,5 +88,50 @@ describe("withProviderRetry", () => {
     await vi.advanceTimersByTimeAsync(20_000);
     await expect(settled).resolves.toBe("done");
     expect(run).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the run deadline", () => {
+  it("reports no deadline when none is in force", () => {
+    // Steps are also called on their own — embedNote uses embedGeneratedTopics
+    // directly — and must keep working with no budget set.
+    expect(remainingMs()).toBeNull();
+    expect(hasTimeFor(600_000, 600_000)).toBe(true);
+  });
+
+  it("keeps the outer deadline when nested", async () => {
+    vi.useRealTimers();
+    await withDeadline(100_000, async () => {
+      const outer = remainingMs()!;
+      await withDeadline(5_000, async () => {
+        // A nested call must not shorten or extend the run it belongs to.
+        expect(remainingMs()!).toBeGreaterThan(outer - 1_000);
+      });
+    });
+    vi.useFakeTimers();
+  });
+
+  it("retries inside the budget", async () => {
+    const run = vi.fn().mockRejectedValueOnce(busy()).mockResolvedValue("ok");
+    const outcome = await settle(withDeadline(200_000, () => withProviderRetry("step", run)));
+    expect(outcome).toEqual({ ok: true, value: "ok" });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not wait when the budget cannot cover the retry", async () => {
+    // This is the fix: four steps each waiting up to a minute twice could
+    // outlast the route's maxDuration, and the platform would kill the handler —
+    // turning an error the caller can read into nothing at all.
+    const run = vi.fn().mockRejectedValue(busy());
+    const outcome = await settle(withDeadline(1_000, () => withProviderRetry("step", run)));
+    expect(outcome.ok).toBe(false);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the provider's error, not a deadline error", async () => {
+    // The caller needs to know it was a busy provider so it can say so.
+    const run = vi.fn().mockRejectedValue(busy());
+    const outcome = await settle(withDeadline(1_000, () => withProviderRetry("step", run)));
+    if (!outcome.ok) expect((outcome.error as { status?: number }).status).toBe(503);
   });
 });

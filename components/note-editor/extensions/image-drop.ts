@@ -1,17 +1,30 @@
 import { EditorView } from "@codemirror/view";
 import { toast } from "sonner";
+import {
+  dataUrlChars,
+  formatBytes,
+  MAX_INLINE_IMAGE_BYTES,
+  remainingNoteChars,
+} from "@/lib/notes/limits";
 
 export type ImageUploader = (file: File) => Promise<{ url: string }>;
 
-const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
-
 /**
- * Fallback uploader until blob storage lands (issue #86): inline the image
- * as a data URL, capped so a note cannot balloon by tens of megabytes.
+ * Fallback uploader until blob storage lands (issue #86): inline the image as a
+ * data URL.
+ *
+ * The size that matters is checked by the caller, against the room left in this
+ * note — a fixed per-image ceiling cannot stop two acceptable images summing
+ * past the note's limit. This bound only keeps a very large file from being
+ * base64-encoded in the browser before anything can object.
  */
 export function fileToDataUrl(file: File): Promise<{ url: string }> {
   if (file.size > MAX_INLINE_IMAGE_BYTES) {
-    return Promise.reject(new Error("Images over 2 MB need image storage, which is not set up yet."));
+    return Promise.reject(
+      new Error(
+        `That image is ${formatBytes(file.size)}. Images have to be under ${formatBytes(MAX_INLINE_IMAGE_BYTES)} until image storage is set up.`,
+      ),
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -36,6 +49,20 @@ export async function insertImages(
   let at = pos;
   for (const file of files) {
     try {
+      // Refused before the upload, not after the insert. An inlined image spends
+      // the note's character budget, and a note over that budget cannot be
+      // saved — so accepting the paste and failing on save would lose the work
+      // after the user had already moved on.
+      if (upload === fileToDataUrl) {
+        const cost = dataUrlChars(file.size, file.type);
+        const room = remainingNoteChars(view.state.doc.length);
+        if (cost > room) {
+          throw new Error(
+            `Inlined images count toward the note's length, and this one needs ${formatBytes(cost)} of the ${formatBytes(room)} left. Shorten the note or use a smaller image.`,
+          );
+        }
+      }
+
       const { url } = await upload(file);
       at = Math.min(at, view.state.doc.length);
       const line = view.state.doc.lineAt(at);

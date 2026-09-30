@@ -4,7 +4,12 @@ import {
   isRetryableProviderError,
   retryDelayMs,
 } from "@/lib/provider-errors";
-import { MAX_INLINE_DOCUMENT_BYTES } from "@/lib/notes/limits";
+import { hasTimeFor, withDeadline } from "@/lib/notes/deadline";
+import {
+  GENERATION_BUDGET_MS,
+  MAX_INLINE_DOCUMENT_BYTES,
+  RETRY_WORK_MARGIN_MS,
+} from "@/lib/notes/limits";
 import { parseMarkdownToNoteDocument } from "@/lib/notes/parse-markdown";
 import { sanitizeStoredText } from "@/lib/notes/sanitize";
 
@@ -96,6 +101,14 @@ export async function withProviderRetry<T>(step: string, run: () => Promise<T>):
         throw error;
       }
       const delay = retryDelayMs(error, attempt);
+      // The run has a deadline, so a retry that cannot finish inside it is not
+      // worth waiting for. Without this the four steps could each wait twice and
+      // together outlast the route's maxDuration, and the platform would kill the
+      // handler — turning an error the caller can read into nothing at all.
+      if (!hasTimeFor(delay, RETRY_WORK_MARGIN_MS)) {
+        console.warn(`[generation] ${step} failed and there is no time left to retry; giving up`);
+        throw error;
+      }
       console.warn(
         `[generation] ${step} failed with a transient provider error; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt} of ${MAX_PROVIDER_ATTEMPTS - 1})`,
       );
@@ -447,18 +460,22 @@ export async function generateTopicNotesFromFile(params: {
   fileName: string;
   mimeType: string;
 }) {
-  const parsedText = await extractDocumentText(
-    params.fileBuffer,
-    params.mimeType,
-    params.fileName,
-  );
-  const markdown = await rewriteParsedTextAsMarkdown(parsedText, params.fileName);
-  const topics = await splitMarkdownIntoTopics(markdown);
-  const embeddedTopics = await embedGeneratedTopics(topics);
+  // One deadline for the whole run, so the four steps' retries share a budget
+  // instead of each having its own unbounded one.
+  return withDeadline(GENERATION_BUDGET_MS, async () => {
+    const parsedText = await extractDocumentText(
+      params.fileBuffer,
+      params.mimeType,
+      params.fileName,
+    );
+    const markdown = await rewriteParsedTextAsMarkdown(parsedText, params.fileName);
+    const topics = await splitMarkdownIntoTopics(markdown);
+    const embeddedTopics = await embedGeneratedTopics(topics);
 
-  return {
-    parsedText,
-    markdown,
-    topics: embeddedTopics,
-  };
+    return {
+      parsedText,
+      markdown,
+      topics: embeddedTopics,
+    };
+  });
 }

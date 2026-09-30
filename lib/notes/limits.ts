@@ -38,6 +38,63 @@ export const MAX_INLINE_DOCUMENT_BYTES = 14 * 1024 * 1024;
  */
 export const MAX_NOTE_MARKDOWN_CHARS = 512 * 1024;
 
+/**
+ * A sanity cap on reading an image into memory to inline it.
+ *
+ * Not the real constraint — `dataUrlChars` and the note's remaining room are.
+ * This only stops a 50 MB file being base64-encoded in the browser before
+ * anything can object to its size.
+ */
+export const MAX_INLINE_IMAGE_BYTES = 1024 * 1024;
+
+/**
+ * Characters a file costs when inlined as a `data:` URL.
+ *
+ * Base64 is 4 characters per 3 bytes, plus the `data:<mime>;base64,` prefix.
+ * This is the number that matters: an inlined image is stored inside the note's
+ * markdown, so it spends the note's character budget.
+ *
+ * The caps used to disagree. The image limit was a flat 2 MB while a note was
+ * capped at MAX_NOTE_MARKDOWN_CHARS, so a 2 MB paste was accepted and became
+ * roughly 2.7M characters — five times what a note may hold. The paste
+ * succeeded and every save afterwards failed, which is worse than refusing the
+ * paste, because the work was already lost by the time anything said so.
+ */
+export function dataUrlChars(bytes: number, mimeType: string): number {
+  return `data:${mimeType};base64,`.length + Math.ceil(bytes / 3) * 4;
+}
+
+/**
+ * Room left in a note of `currentChars` for one more inlined file.
+ *
+ * Checked against the note rather than against a per-image ceiling, because a
+ * per-image ceiling cannot stop two acceptable images summing past the limit.
+ */
+export function remainingNoteChars(currentChars: number): number {
+  return Math.max(0, MAX_NOTE_MARKDOWN_CHARS - currentChars);
+}
+
+/**
+ * How long one generation run may take, including retries.
+ *
+ * Must stay below the upload route's `maxDuration`, with room left for the
+ * database insert and the response after the model calls finish. The route is
+ * killed at its limit, so a budget above it would trade an error the caller can
+ * read for a silent hang.
+ */
+export const GENERATION_BUDGET_MS = 240_000;
+
+/** The upload route's `maxDuration`, in seconds. Mirrored here to be asserted. */
+export const UPLOAD_MAX_DURATION_SECONDS = 300;
+
+/**
+ * Time a retry needs after its wait to be worth scheduling.
+ *
+ * A retry started with no room to finish spends the wait and still returns
+ * nothing, which is worse than failing immediately.
+ */
+export const RETRY_WORK_MARGIN_MS = 20_000;
+
 /** Shown when a note's text exceeds MAX_NOTE_MARKDOWN_CHARS. */
 export const NOTE_TOO_LARGE_MESSAGE =
   "That note is too long to save. Split it into smaller notes and try again.";
