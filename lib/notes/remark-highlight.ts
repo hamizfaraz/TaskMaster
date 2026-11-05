@@ -8,11 +8,9 @@
  * The tree is walked by hand rather than pulling in `unist-util-visit`: the
  * traversal is a dozen lines and the dependency is not otherwise used.
  *
- * Only `text` nodes are rewritten. `remark-math` and the Markdown parser have
- * already lifted code spans, fenced code, and math into their own node types
- * whose content is a `value` rather than `text` children, so those are skipped
- * without needing an explicit exclusion — which is what keeps
- * `s[ root1 ] == s[ root2 ]` in a code fence from becoming a highlight.
+ * Match delimiters across sibling text, formatting, and inline math nodes.
+ * Code and math values stay opaque so their equals signs are never treated
+ * as highlight delimiters.
  *
  * Must run after `remark-math`, or `$a == b$` would be split before the math
  * node exists.
@@ -41,75 +39,55 @@ function isParent(node: unknown): node is ParentNode & { children: unknown[] } {
   );
 }
 
-/** Split one text node into text and `<mark>` nodes. Returns null when unchanged. */
-function splitHighlights(node: TextNode): unknown[] | null {
-  HIGHLIGHT_RE.lastIndex = 0;
-  if (!HIGHLIGHT_RE.test(node.value)) {
-    return null;
-  }
+/** Keep inline nodes intact while matching markers across their boundaries. */
+function splitHighlights(children: unknown[]): unknown[] {
+  const pieces = children.map((node) => ({
+    node,
+    text: isTextNode(node) ? node.value :
+      (node as { type?: string })?.type === "break" ? "\n" : "\uFFFC",
+  }));
+  const source = pieces.map((piece) => piece.text).join("");
+  const slice = (from: number, to: number) => {
+    const result: unknown[] = [];
+    let offset = 0;
+    for (const piece of pieces) {
+      const end = offset + piece.text.length;
+      if (offset < to && end > from) {
+        result.push(isTextNode(piece.node)
+          ? { type: "text", value: piece.text.slice(Math.max(0, from - offset), to - offset) }
+          : piece.node);
+      }
+      offset = end;
+    }
+    return result;
+  };
 
   const out: unknown[] = [];
   let cursor = 0;
   HIGHLIGHT_RE.lastIndex = 0;
-
-  for (const match of node.value.matchAll(HIGHLIGHT_RE)) {
-    const start = match.index ?? 0;
-    const inner = (match[1] ?? "").trim();
-    if (!inner) {
-      continue;
-    }
-
-    if (start > cursor) {
-      out.push({ type: "text", value: node.value.slice(cursor, start) });
-    }
+  for (const match of source.matchAll(HIGHLIGHT_RE)) {
+    if (!match[1]?.trim()) continue;
+    const start = match.index;
+    out.push(...slice(cursor, start));
     out.push({
       type: "highlight",
-      // `data.hName` is how mdast asks remark-rehype for a specific element.
       data: { hName: "mark" },
-      children: [{ type: "text", value: inner }],
+      children: slice(start + 2, start + match[0].length - 2),
     });
     cursor = start + match[0].length;
   }
-
-  if (out.length === 0) {
-    return null;
-  }
-
-  if (cursor < node.value.length) {
-    out.push({ type: "text", value: node.value.slice(cursor) });
-  }
-
+  if (cursor === 0) return children;
+  out.push(...slice(cursor, source.length));
   return out;
 }
 
 export function remarkHighlight() {
   return (tree: unknown) => {
     const walk = (node: unknown) => {
-      if (!isParent(node)) {
-        return;
-      }
-
-      const next: unknown[] = [];
-      let changed = false;
-
-      for (const child of node.children) {
-        if (isTextNode(child)) {
-          const split = splitHighlights(child);
-          if (split) {
-            next.push(...split);
-            changed = true;
-            continue;
-          }
-        }
-        walk(child);
-        next.push(child);
-      }
-
-      if (changed) {
-        node.children = next;
-      }
+      if (!isParent(node)) return;
+      for (const child of node.children) walk(child);
+      node.children = splitHighlights(node.children);
     };
-
     walk(tree);
   };
 }

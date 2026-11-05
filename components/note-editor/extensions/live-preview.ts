@@ -257,10 +257,10 @@ export function buildLivePreviewDecorations(view: EditorView): DecorationSet {
         continue;
       }
       decorations.push(highlightMark.range(start, end));
-      if (!isActiveAt(start)) {
-        hideRange(start, start + 2);
-        hideRange(end - 2, end);
-      }
+      // Highlights stay rendered while selecting/editing their text. Source
+      // mode exposes the markers when the user wants to edit Markdown.
+      hideRange(start, start + 2);
+      hideRange(end - 2, end);
     }
   }
 

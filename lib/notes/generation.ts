@@ -34,6 +34,17 @@ const EMBEDDING_DIMENSIONS = 768;
 const MAX_GENERATED_TOPIC_NOTES = 4;
 const TARGET_MARKDOWN_CHARS_PER_TOPIC_NOTE = 4500;
 
+// Select emphasis while the model already has the full note in context. Keep
+// the same instructions in the rewrite and topic split so the final split
+// cannot discard the highlights that the rewrite chose.
+const GENERATED_HIGHLIGHT_INSTRUCTIONS = [
+  "Identify and highlight the most important points and formulas for studying, relative to the rest of each note.",
+  "Use ==highlighted text== for a small, selective set of central definitions, key results, essential conditions, and formulas; leave examples, routine steps, and most prose unhighlighted. Do not highlight whole paragraphs or every bullet.",
+  "For a selected key formula, use ==$LaTeX$== on a single line, with the == markers outside the math delimiters. Preserve every mathematical symbol and condition; never put == inside LaTeX or code. Keep multiline derivations as display math with $$ on separate lines, and highlight the key result separately as a single-line inline formula only when that result is already present in the source.",
+  "Where possible, include the formula's title, name, or a concise definition in the SAME highlight as the formula: ==Formula name or short definition: $LaTeX$==. Look in the surrounding sentence, preceding heading, and nearby definition for context explicitly tied to that formula. Prefer a short, self-contained label that explains what the formula describes, preserving essential conditions. When no reliable label is supplied, highlight the formula alone; do not invent a name or infer a definition. Preserve this label-formula pairing when splitting into topics, including for highlights already present in the supplied notes.",
+  "Highlights must stay on a single line, outside headings, code fences, inline code, links, and table structure. Preserve existing highlights, avoid nested highlights, and do not invent facts or formulas to highlight.",
+].join("\n\n");
+
 const markdownNoteSchema = z.object({
   markdown: z.string().min(1),
 });
@@ -226,6 +237,7 @@ export async function rewriteParsedTextAsMarkdown(parsedText: string, fileName: 
                 "Convert all parsed lists into Markdown lists. Do not attempt to interpret or rewrite list contents.",
                 "Convert all parsed images into Markdown image links with alt text. Do not attempt to interpret or rewrite image contents.",
                 "Convert all code sections into Markdown code blocks. Do not attempt to interpret or rewrite code contents. Fix indentation and formatting if needed for valid Markdown, but do not change code syntax.",
+                GENERATED_HIGHLIGHT_INSTRUCTIONS,
                 "Return JSON only with this shape: {\"markdown\":\"...\"}.",
                 `File name: ${fileName}`,
                 "Parsed text:",
@@ -277,6 +289,7 @@ export async function splitMarkdownIntoTopics(markdown: string) {
                 "Preserve as much supplied detail as possible inside each topic. Do not make thin summaries.",
                 "Do not introduce new facts. Do not summarize across missing context.",
                 "A topic may be the entire note if the note covers one topic.",
+                GENERATED_HIGHLIGHT_INSTRUCTIONS,
                 "Return JSON only with this shape: {\"topics\":[{\"title\":\"...\",\"markdown\":\"...\"}]}",
                 "Markdown notes:",
                 markdown,

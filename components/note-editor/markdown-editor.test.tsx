@@ -55,6 +55,50 @@ describe("MarkdownEditor", () => {
     // The `$not math$` inside inline code must not become a widget: 2 widgets total, counted above.
   });
 
+  it("renders generated highlights around formulas without exposing their markers", () => {
+    const { host, view } = mount({ value: "# Energy\n\n==Energy is conserved.==\n\n==$E = mc^2$==" });
+
+    expect(host.querySelector(".cm-note-math.cm-note-highlight .katex")).not.toBeNull();
+    expect(host.querySelector(".cm-content")?.textContent).not.toContain("==");
+    expect(view.state.doc.toString()).toContain("==$E = mc^2$==");
+    act(() => {
+      view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf("Energy is") + 3 } });
+    });
+    expect(host.querySelector(".cm-content")?.textContent).not.toContain("==");
+  });
+
+  it("keeps a formula rendered after highlighting its selected definition", () => {
+    const value = "Mass–energy equivalence: $E = mc^2$";
+    const { host, view } = mount({ value });
+    act(() => {
+      view.dispatch({ selection: { anchor: 0, head: value.length } });
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "H", code: "KeyH", keyCode: 72, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+      }));
+    });
+    expect(view.state.doc.toString()).toBe(`==${value}==`);
+    expect(host.querySelector(".cm-note-math.cm-note-highlight .katex")).not.toBeNull();
+    expect(host.querySelector(".cm-content")?.textContent).not.toContain("$E");
+  });
+
+  it("toggles highlighting on selected text with Ctrl+Shift+H", () => {
+    const { view } = mount({ value: "An important point." });
+    act(() => {
+      view.dispatch({ selection: { anchor: 3, head: 18 } });
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "H", code: "KeyH", keyCode: 72, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+      }));
+    });
+    expect(view.state.doc.toString()).toBe("An ==important point==.");
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe("important point");
+    act(() => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "H", code: "KeyH", keyCode: 72, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+      }));
+    });
+    expect(view.state.doc.toString()).toBe("An important point.");
+  });
+
   it("reveals a math region's source when the selection touches it", () => {
     const { host, view } = mount();
     const inlineStart = sample.indexOf("$A = ");

@@ -1,6 +1,7 @@
 import { type EditorState, Prec, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
 import { findMathRanges, type MathRange } from "@/lib/notes/math-ranges";
+import { findHighlightRanges } from "@/lib/notes/highlights";
 import { renderKatexHtml } from "@/components/note-editor/extensions/katex-render";
 import {
   enterMath,
@@ -43,17 +44,19 @@ class KatexWidget extends WidgetType {
   constructor(
     readonly latex: string,
     readonly display: boolean,
+    readonly highlighted: boolean,
   ) {
     super();
   }
 
   eq(other: KatexWidget) {
-    return other.latex === this.latex && other.display === this.display;
+    return other.latex === this.latex && other.display === this.display && other.highlighted === this.highlighted;
   }
 
   toDOM(view: EditorView) {
     const element = document.createElement(this.display ? "div" : "span");
     element.className = this.display ? "cm-note-math cm-note-math-display" : "cm-note-math";
+    if (this.highlighted) element.classList.add("cm-note-highlight");
     element.setAttribute("role", "button");
     element.setAttribute("title", "Edit formula");
     element.innerHTML = renderKatexHtml(this.latex, this.display);
@@ -95,17 +98,28 @@ function buildMathDecorations(state: EditorState): DecorationSet {
   const doc = state.doc;
   const session = state.field(mathSessionField, false) ?? null;
   const decorations = [];
+  const highlights = findHighlightRanges(doc.toString());
 
   for (const range of findMathRanges(doc.toString())) {
     if (session && range.from < session.to && range.to > session.from) {
       continue; // rendered as the open field below
     }
-    if (touchesSelection(state, range.from, range.to)) {
+    const highlighted = highlights.some(
+      (highlight) => highlight.from <= range.from && highlight.to >= range.to,
+    );
+    // Applying a highlight preserves the selection. Keep those formulas
+    // rendered rather than immediately replacing them with raw LaTeX.
+    // Clicking the widget still opens MathLive; Source mode exposes Markdown.
+    if (!highlighted && touchesSelection(state, range.from, range.to)) {
       continue;
     }
     decorations.push(
       Decoration.replace({
-        widget: new KatexWidget(range.latex, range.display),
+        widget: new KatexWidget(
+          range.latex,
+          range.display,
+          highlighted,
+        ),
         block: range.display && isBlockShaped(state, range.from, range.to),
       }).range(range.from, range.to),
     );
