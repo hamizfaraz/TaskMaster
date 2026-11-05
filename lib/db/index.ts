@@ -1,8 +1,9 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle as drizzleNeonHttp } from "drizzle-orm/neon-http";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
+import { createRetryingFetch } from "./retry";
 
 export type DatabaseDriver = "neon-http" | "pg";
 
@@ -29,6 +30,12 @@ const createDb = (): DrizzleDb => {
     const pool = new Pool({ connectionString: databaseUrl });
     return drizzleNodePg({ client: pool, schema });
   }
+
+  // Neon computes auto-suspend when idle, and a request that arrives while one
+  // wakes can fail outright. Retrying reads at the HTTP layer turns that from a
+  // hard error into a brief stall. Set on neonConfig because `neon()` takes no
+  // per-client fetch override; this is the only place a client is constructed.
+  neonConfig.fetchFunction = createRetryingFetch();
 
   const client = neon(databaseUrl);
   return drizzleNeonHttp({ client, schema });

@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   isQuotaExhausted,
   isRateLimited,
+  isRetryableProviderError,
+  isServiceOverloaded,
+  retryDelayMs,
+  SERVICE_BUSY_MESSAGE,
   QUOTA_EXHAUSTED_MESSAGE,
   RATE_LIMITED_MESSAGE,
-  rateLimitMessage,
+  providerErrorMessage,
 } from "@/lib/provider-errors";
 
 const geminiQuota = new Error(
@@ -55,17 +59,101 @@ describe("isQuotaExhausted", () => {
     // asks for a 37s retry. Reading the delay first reported "wait a minute"
     // for a limit that only resets tomorrow.
     expect(isQuotaExhausted(dailyCapWithShortRetry)).toBe(true);
-    expect(rateLimitMessage(dailyCapWithShortRetry)).toBe(QUOTA_EXHAUSTED_MESSAGE);
+    expect(providerErrorMessage(dailyCapWithShortRetry)).toBe(QUOTA_EXHAUSTED_MESSAGE);
   });
 });
 
-describe("rateLimitMessage", () => {
+describe("providerErrorMessage", () => {
   it("returns null for errors that are the caller's fault", () => {
-    expect(rateLimitMessage(new Error("Unsupported file type"))).toBeNull();
+    expect(providerErrorMessage(new Error("Unsupported file type"))).toBeNull();
   });
 
   it("distinguishes waiting a minute from waiting a day", () => {
-    expect(rateLimitMessage(perMinute)).toBe(RATE_LIMITED_MESSAGE);
-    expect(rateLimitMessage(geminiQuota)).toBe(QUOTA_EXHAUSTED_MESSAGE);
+    expect(providerErrorMessage(perMinute)).toBe(RATE_LIMITED_MESSAGE);
+    expect(providerErrorMessage(geminiQuota)).toBe(QUOTA_EXHAUSTED_MESSAGE);
+  });
+});
+
+// The exact body the pipeline hit twice in ten minutes while being audited.
+const overloaded = Object.assign(
+  new Error(
+    '{"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}',
+  ),
+  { status: 503 },
+);
+
+describe("isServiceOverloaded", () => {
+  it("recognises a 503 from the provider", () => {
+    expect(isServiceOverloaded(overloaded)).toBe(true);
+  });
+
+  it("is not confused with a rate limit", () => {
+    // 503 is the provider being busy; 429 is us asking for too much. They need
+    // different messages, so they must not collapse into one another.
+    expect(isRateLimited(overloaded)).toBe(false);
+    expect(isServiceOverloaded(geminiQuota)).toBe(false);
+    expect(isServiceOverloaded(perMinute)).toBe(false);
+  });
+
+  it("does not fire on an ordinary failure", () => {
+    expect(isServiceOverloaded(new Error("Unsupported file type"))).toBe(false);
+  });
+
+  it("does not treat the bare word 'unavailable' as a busy provider", () => {
+    // "model unavailable" and "unavailable in your region" are permanent. Reading
+    // the English word rather than the protocol status made a plain failure look
+    // transient, so it would be retried and then reported as "try again".
+    expect(isServiceOverloaded(new Error("model unavailable"))).toBe(false);
+    expect(isServiceOverloaded(new Error("This model is unavailable in your region"))).toBe(false);
+    expect(isRetryableProviderError(new Error("model unavailable"))).toBe(false);
+  });
+});
+
+describe("providerErrorMessage for a busy provider", () => {
+  it("says the service is busy, not that the file is bad", () => {
+    // This is the whole point: it used to fall through to "Could not generate
+    // notes from that file", which blames the one thing that is not at fault.
+    expect(providerErrorMessage(overloaded)).toBe(SERVICE_BUSY_MESSAGE);
+    expect(SERVICE_BUSY_MESSAGE).toContain("nothing is wrong with your file");
+  });
+});
+
+describe("isRetryableProviderError", () => {
+  it("retries a busy provider", () => {
+    expect(isRetryableProviderError(overloaded)).toBe(true);
+  });
+
+  it("retries a per-minute burst", () => {
+    expect(isRetryableProviderError(perMinute)).toBe(true);
+  });
+
+  it("does not retry an exhausted daily quota", () => {
+    // It will not clear on its own, so waiting only delays telling the user.
+    expect(isRetryableProviderError(geminiQuota)).toBe(false);
+    expect(isRetryableProviderError(dailyCapWithShortRetry)).toBe(false);
+  });
+
+  it("does not retry a failure that is the caller's fault", () => {
+    expect(isRetryableProviderError(new Error("Unsupported file type"))).toBe(false);
+  });
+});
+
+describe("retryDelayMs", () => {
+  it("honours a sane delay named by the provider", () => {
+    expect(retryDelayMs(perMinute, 1)).toBe(23_500);
+  });
+
+  it("backs off when no delay is named", () => {
+    expect(retryDelayMs(overloaded, 1)).toBe(15_000);
+    expect(retryDelayMs(overloaded, 2)).toBe(30_000);
+  });
+
+  it("caps the wait so a step cannot hang indefinitely", () => {
+    expect(retryDelayMs(overloaded, 99)).toBe(60_000);
+  });
+
+  it("ignores an implausible named delay", () => {
+    const silly = new Error("rate limit exceeded. Please retry in 86400s");
+    expect(retryDelayMs(silly, 1)).toBe(15_000);
   });
 });

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   ContentTooLargeError,
+  dataUrlChars,
   formatBytes,
+  GENERATION_BUDGET_MS,
   MAX_INLINE_DOCUMENT_BYTES,
+  MAX_INLINE_IMAGE_BYTES,
   MAX_NOTE_MARKDOWN_CHARS,
   MAX_UPLOAD_FILE_BYTES,
+  remainingNoteChars,
+  RETRY_WORK_MARGIN_MS,
+  UPLOAD_MAX_DURATION_SECONDS,
 } from "@/lib/notes/limits";
 import { normalizeNoteWriteMarkdown } from "@/lib/notes/persistence";
 
@@ -48,5 +54,54 @@ describe("normalizeNoteWriteMarkdown size guard", () => {
 
   it("still rejects a non-string before measuring it", () => {
     expect(() => normalizeNoteWriteMarkdown(42)).toThrow(/must be a string/);
+  });
+});
+
+describe("generation time budget", () => {
+  it("leaves the route room to finish after the model calls", () => {
+    // The platform kills the handler at maxDuration, so a budget at or above it
+    // would trade an error the caller can read for a silent hang. Retries can
+    // wait up to a minute each across four steps, which is what made this
+    // relationship worth asserting rather than assuming.
+    expect(GENERATION_BUDGET_MS).toBeLessThan(UPLOAD_MAX_DURATION_SECONDS * 1000);
+    const headroom = UPLOAD_MAX_DURATION_SECONDS * 1000 - GENERATION_BUDGET_MS;
+    expect(headroom).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it("keeps the retry margin small next to the budget", () => {
+    expect(RETRY_WORK_MARGIN_MS).toBeLessThan(GENERATION_BUDGET_MS / 4);
+  });
+});
+
+describe("inlined image sizing", () => {
+  it("counts a data URL the way base64 actually costs", () => {
+    // 3 bytes -> 4 characters, plus the data: prefix.
+    expect(dataUrlChars(3, "image/png")).toBe("data:image/png;base64,".length + 4);
+    expect(dataUrlChars(1, "image/png")).toBe("data:image/png;base64,".length + 4);
+    expect(dataUrlChars(3072, "image/png")).toBe("data:image/png;base64,".length + 4096);
+  });
+
+  it("reports the room left in a note", () => {
+    expect(remainingNoteChars(0)).toBe(MAX_NOTE_MARKDOWN_CHARS);
+    expect(remainingNoteChars(MAX_NOTE_MARKDOWN_CHARS)).toBe(0);
+    expect(remainingNoteChars(MAX_NOTE_MARKDOWN_CHARS + 1_000)).toBe(0);
+  });
+
+  it("would have caught the caps disagreeing", () => {
+    // The bug: a flat 2 MB image cap against a note capped in characters. A 2 MB
+    // paste was accepted and cost about five notes' worth of budget, so the
+    // paste succeeded and every save afterwards failed.
+    expect(dataUrlChars(2 * 1024 * 1024, "image/png")).toBeGreaterThan(
+      MAX_NOTE_MARKDOWN_CHARS * 4,
+    );
+  });
+
+  it("keeps the in-memory bound above what a note can hold, since the note decides", () => {
+    // MAX_INLINE_IMAGE_BYTES is only there to stop a huge file being encoded at
+    // all; the note's remaining room is the real limit, so this must not be the
+    // thing that silently decides.
+    expect(dataUrlChars(MAX_INLINE_IMAGE_BYTES, "image/png")).toBeGreaterThan(
+      MAX_NOTE_MARKDOWN_CHARS,
+    );
   });
 });
