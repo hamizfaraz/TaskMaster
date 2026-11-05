@@ -2,16 +2,16 @@
 
 Status: implementation plan; application behavior has not changed.
 
-Branch: `codex/57-note-generation-pipeline`, based on `develop`.
+Branch: `codex/94-note-generation-pipeline`, based on `develop`.
 
-Primary issue: [#57 — Topic-Based Retrieval and Chunked Embeddings](https://github.com/hamizfaraz/TaskMaster/issues/57).
-Related: [#7 — Note analysis and topic splitting](https://github.com/hamizfaraz/TaskMaster/issues/7) and [#89 — Highlight-aware flashcard generation](https://github.com/hamizfaraz/TaskMaster/issues/89).
+Primary issue: [#94 — Reliable final generation and incremental section embeddings](https://github.com/hamizfaraz/TaskMaster/issues/94).
+Related: [#7 — Note analysis and topic splitting](https://github.com/hamizfaraz/TaskMaster/issues/7).
 
-This plan supplies the generation and indexing foundation for #57. It does not by itself complete that issue's topic-query UI and retrieval integration, or #7's user-approved splitting of existing notes. Refer to these issues without automatically closing them when the foundation ships.
+Scope: note generation, persistence, highlighting, and note-owned section indexing. Flashcard retrieval and quiz integration are separate work, preserved in [the study-generation follow-up](./study-generation-retrieval-follow-up.md) under #57/#89. They are not dependencies or release gates for this plan. The existing-note split-suggestion UI in #7 is also outside this scope.
 
 ## Outcome and constraints
 
-Generate comprehensive, source-grounded Markdown notes with useful highlights, then index meaningful sections for study-material retrieval. Reduce repeated model output while preserving definitions, equations, conditions, examples, and uncertainty.
+Generate comprehensive, source-grounded Markdown notes with useful highlights, then index meaningful sections as part of the note processing pipeline. Reduce repeated model output while preserving definitions, equations, conditions, examples, and uncertainty.
 
 Keep Markdown canonical and the block document a derived cache. Reuse the shared math scanner, CodeMirror/MathLive editor, KaTeX renderer, existing authentication, and class ownership checks. Existing notes must remain readable throughout rollout.
 
@@ -21,7 +21,7 @@ Cost savings are a hypothesis to measure, not a consequence of fewer requests al
 
 `lib/notes/generation.ts` currently performs transcription, a full Markdown rewrite, topic splitting, then embedding. The normal path has three generation requests and one embedding request. Highlights are selected inside existing rewrite/split calls. Topic rebalancing favors a small number of substantial notes; each final note receives one 768-dimensional vector.
 
-`app/api/notes/upload/route.ts` persists the resulting notes after generation. Provider retries are bounded per stage and share a deadline. Completed stages are not persistently checkpointed. Note edits can refresh the whole-note embedding, throttled by a 30-second freshness window. Study generators currently receive note bodies and numeric vectors rather than retrieved sections.
+`app/api/notes/upload/route.ts` persists the resulting notes after generation. Provider retries are bounded per stage and share a deadline. Completed stages are not persistently checkpointed. Note edits can refresh the whole-note embedding, throttled by a 30-second freshness window.
 
 ## Proposed pipeline
 
@@ -85,7 +85,7 @@ Create searchable chunks from canonical Markdown, not the potentially lossy deri
 - Keep a definition, formula, and nearby conditions together. Keep worked steps together where size permits. Treat math, code, and tables as structural units.
 - Use minimal overlap for context-dependent boundaries. Store canonical ranges separately from added embedding context to avoid duplicate retrieval text.
 - Embed `note title + heading path + chunk text`. Extract highlights as metadata; do not create a separate AI call or embedding for every highlight initially.
-- Retain the existing whole-note vector during migration for existing consumers. Count the additional whole-note embedding in cost measurements; reassess its value after retrieval adoption.
+- Retain the existing whole-note vector during migration for existing consumers. Count the additional whole-note embedding in cost measurements. Removing it is a separate consumer-migration decision.
 
 Proposed chunk fields: chunk ID, note ID, ordinal, heading path, canonical Markdown range, text, highlight ranges, embedding-input hash, embedding model/dimensions, note revision, index revision, and vector. Ownership and class filtering must be enforced through the parent note or consistently maintained metadata.
 
@@ -97,15 +97,13 @@ Store embedding inputs/version metadata explicitly. A matching vector dimension 
 - Re-split deterministically. Reuse vectors only when the exact embedding-input hash and model version match. Heading/title changes affect embedding input even if body text stays the same.
 - Reconcile deleted/reordered chunks. Publish the entire new index revision atomically once all required embeddings succeed.
 - Discard stale job results if the note changed during embedding. Preserve the latest authored Markdown regardless of embedding failures.
-- Retrieval uses only an index revision matching the note revision. While stale, fall back to current selected-note text or show indexing status rather than treating old chunks as current evidence.
+- Mark index readiness against the note revision. Never label a stale index as current. The note remains editable while indexing is pending; future consumers can check this revision contract.
 
-### 6. Retrieval handoff and user feedback
+### 6. Note-generation feedback and indexing contract
 
-Expose a shared retrieval contract returning source text, note/chunk IDs, heading path, highlights, and revision. Future flashcard/quiz work should search these vectors and pass retrieved text to Gemini instead of vector-number arrays.
+Publish note-owned chunk records with source text, note/chunk IDs, heading paths, highlights, ownership, and revision metadata. This is a data contract, not a search or study-generation endpoint. Keep existing whole-note vectors available so current consumers continue working.
 
-Restrict retrieval to the authenticated user's selected notes by default. Rank highlighted concepts alongside broader topics, reduce repeated concepts, and retrieve neighbors when needed. Sparse highlights should receive coverage without being stretched into repetitive questions. Implement the topic-query controls and output-coverage checks in follow-up work for #57/#89.
-
-Follow existing UI conventions: disabled controls with spinners, Sonner loading/success/error states, and short safe API errors with detailed server logs. Show meaningful stages such as “Reading document,” “Creating notes,” and “Preparing study material.” If indexing fails after notes save, explain that distinction and offer an indexing retry; prevent duplicate uploads as the default recovery. Update `hasEmbedding`-based study eligibility deliberately during migration.
+Follow existing UI conventions: disabled controls with spinners, Sonner loading/success/error states, and short safe API errors with detailed server logs. Show meaningful stages such as “Reading document,” “Creating notes,” and “Indexing note sections.” If indexing fails after notes save, explain that distinction and offer an indexing retry; prevent duplicate uploads as the default recovery. Preserve existing `hasEmbedding` behavior for current consumers.
 
 ## Implementation sequence
 
@@ -114,8 +112,7 @@ Follow existing UI conventions: disabled controls with spinners, Sonner loading/
 3. **Repair and checkpoints:** add migrations, run recovery, idempotency, and bounded targeted repair. Validate failure recovery before enabling by default.
 4. **Chunk indexing:** add deterministic sectioning, chunk persistence, bounded embedding batches, revision publication, and compatibility with current note vectors.
 5. **Incremental updates:** implement change hashing, trailing reindexing, stale-work rejection, deletion handling, and indexing feedback.
-6. **Retrieval adoption:** switch shared study context to scoped chunk retrieval, then implement topic focus and coverage balancing under the linked issues.
-7. **Rollout:** enable on a small set of new uploads, compare against the baseline, then expand. Reindex existing notes from saved Markdown without retranscribing uploads. Backfill incrementally with resumable progress and a usage ceiling.
+6. **Rollout:** enable on a small set of new uploads, compare against the baseline, then expand. Reindex existing notes from saved Markdown without retranscribing uploads. Backfill incrementally with resumable progress and a usage ceiling.
 
 Read the installed Next.js route/runtime guides before implementation. Coordinate Drizzle migrations with the auth-generated schema. Review `components/note-editor/README.md` and `docs/note-editor-requirements.md` before changing Markdown interpretation.
 
@@ -123,7 +120,7 @@ Read the installed Next.js route/runtime guides before implementation. Coordinat
 
 Automated coverage should include mixed prose/math, highlighted labels with formulas, tables/code, long derivations, multi-topic documents, sparse highlights, duplicate concepts, illegible text, and oversized sources.
 
-Exercise malformed/truncated provider output, missing/invalid source IDs, bounded repair, quota failures, partial embedding batches, duplicate submissions, interrupted saves, concurrent edits, stale index revisions, and cross-user access attempts.
+Exercise malformed/truncated provider output, missing/invalid source IDs, bounded repair, quota failures, partial embedding batches, duplicate submissions, interrupted saves, concurrent edits, stale index revisions, and cross-user access to generation runs or chunk records.
 
 Evaluate paired runs on identical sources. Record input/output tokens for every generation and repair call, embedding tokens where reported, retries, latency, rendering defects, missing facts, and unsupported claims. Record configured model versions; do not substitute historical price comments for measured usage.
 
@@ -134,7 +131,8 @@ Release only when:
 - Normal-size valid sources use one transcription and one final-generation request, without routine repair.
 - Measured aggregate generation usage is lower than baseline at equivalent coverage; report embedding/storage overhead separately.
 - Retry/recovery produces no duplicate notes and never overwrites user edits.
-- Changed-section indexing reuses unchanged vectors, publishes consistent revisions, and prevents unauthorized or stale retrieval.
+- Changed-section indexing reuses unchanged vectors, publishes consistent revisions, and enforces ownership and index-readiness metadata.
+- No flashcard/quiz UI, retrieval, prompt, or coverage changes are required to release this pipeline.
 - Relevant tests, lint, type checking, and required repository CI pass.
 
-Rollback through the generation feature flag and retrieval fallback. Keep saved Markdown and completed runs; disable the new path without deleting generated notes or forcing paid regeneration.
+Rollback through the generation/indexing feature flags and existing whole-note embedding path. Keep saved Markdown and completed runs; disable the new path without deleting generated notes or forcing paid regeneration.
